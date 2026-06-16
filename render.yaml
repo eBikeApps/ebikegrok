@@ -7,7 +7,7 @@ services:
     region: frankfurt
     plan: free
     rootDir: backend
-    buildCommand: bun install && bunx prisma generate
+    buildCommand: ./render-build.sh
     startCommand: bun run start
     healthCheckPath: /health
     envVars:
