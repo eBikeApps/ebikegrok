@@ -122,13 +122,14 @@ app.use(
 // Logging
 app.use("*", logger());
 
-// Health check endpoint
-app.get("/health", (c) => c.json({ status: "ok" }));
-
 // Diagnostic endpoint — shows which auth providers are active AND the exact redirect URIs being used
 const emailSignupDisabled = ["1", "true", "yes"].includes(
   (process.env.DISABLE_EMAIL_SIGNUP ?? "").trim().toLowerCase()
 );
+
+// Health check endpoint (version helps verify Render deployed latest code)
+const BUILD_VERSION = "2026-06-17-email-signup";
+app.get("/health", (c) => c.json({ status: "ok", version: BUILD_VERSION, emailSignUpEnabled: !emailSignupDisabled }));
 
 app.get("/api/auth/providers-check", (c) => {
   const resolvedBase = (process.env.OAUTH_BASE_URL || process.env.BACKEND_URL || "http://localhost:3000").replace(/\/$/, "");
