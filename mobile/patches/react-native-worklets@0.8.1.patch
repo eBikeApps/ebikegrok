@@ -1,0 +1,13 @@
+diff --git a/lib/module/WorkletsModule/NativeWorklets.native.js b/lib/module/WorkletsModule/NativeWorklets.native.js
+index 74728570d78e75377fbd02dbff0c7b49a5698368..e7ae45a6138bb1a5e4eb015aa34e5e38bf3b4112 100644
+--- a/lib/module/WorkletsModule/NativeWorklets.native.js
++++ b/lib/module/WorkletsModule/NativeWorklets.native.js
+@@ -15,7 +15,7 @@ class NativeWorklets {
+     const bundleModeEnabled = globalThis._WORKLETS_BUNDLE_MODE_ENABLED ?? false;
+     globalThis._WORKLETS_VERSION_JS = jsVersion;
+     if (global.__workletsModuleProxy === undefined && globalThis.__RUNTIME_KIND === RuntimeKind.ReactNative) {
+-      WorkletsTurboModule?.installTurboModule(bundleModeEnabled);
++      WorkletsTurboModule?.installTurboModule(String(bundleModeEnabled));
+       if (__DEV__ && bundleModeEnabled) {
+         console.log('[Worklets] Bundle mode initialization: Downloaded the bundle for Worklet Runtimes.');
+       }

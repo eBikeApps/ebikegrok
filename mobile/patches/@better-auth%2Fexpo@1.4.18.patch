@@ -1,0 +1,13 @@
+diff --git a/dist/client.mjs b/dist/client.mjs
+index 1111111..2222222 100644
+--- a/dist/client.mjs
++++ b/dist/client.mjs
+@@ -243,7 +243,7 @@
+ 					const signInURL = context.data?.url;
+ 					let Browser = void 0;
+ 					try {
+-						Browser = await import("expo-web-browser");
++						Browser = require("expo-web-browser");
+ 					} catch (error) {
+ 						throw new Error("\"expo-web-browser\" is not installed as a dependency!", { cause: error });
+ 					}

@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>eBike Land — QA Checklist</title>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --green:   #10b981;
+    --green-d: #059669;
+    --green-l: #d1fae5;
+    --blue:    #3b82f6;
+    --purple:  #8b5cf6;
+    --gray-50: #f9fafb;
+    --gray-100:#f3f4f6;
+    --gray-200:#e5e7eb;
+    --gray-400:#9ca3af;
+    --gray-600:#4b5563;
+    --gray-800:#1f2937;
+    --gray-900:#111827;
+    --white:   #ffffff;
+    --radius:  14px;
+    --shadow:  0 4px 24px rgba(0,0,0,.08);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--gray-50);
+    color: var(--gray-800);
+    min-height: 100vh;
+  }
+
+  /* ─── STICKY HEADER ─────────────────────────────────── */
+  #sticky-bar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(255,255,255,.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--gray-200);
+    padding: 14px 20px 12px;
+  }
+
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .brand-logo {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    box-shadow: 0 0 12px rgba(16,185,129,.35);
+  }
+
+  .brand-name {
+    font-size: 17px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .brand-subtitle {
+    font-size: 11px;
+    color: var(--gray-400);
+    font-weight: 500;
+    letter-spacing: .4px;
+    text-transform: uppercase;
+    margin-left: auto;
+  }
+
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .progress-track {
+    flex: 1;
+    min-width: 120px;
+    height: 8px;
+    background: var(--gray-200);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    transition: width .3s ease;
+    width: 0%;
+  }
+
+  .progress-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-600);
+    white-space: nowrap;
+    min-width: 130px;
+  }
+
+  .progress-label span { color: var(--green); }
+
+  .btn-group { display: flex; gap: 7px; }
+
+  .btn {
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: none;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    letter-spacing: .2px;
+  }
+  .btn:active { transform: scale(.96); }
+
+  .btn-check-all {
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(16,185,129,.3);
+  }
+  .btn-check-all:hover { filter: brightness(1.08); }
+
+  .btn-reset {
+    background: var(--gray-100);
+    color: var(--gray-600);
+    border: 1px solid var(--gray-200);
+  }
+  .btn-reset:hover { background: var(--gray-200); }
+
+  /* ─── MAIN LAYOUT ────────────────────────────────────── */
+  #page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 28px 16px 80px;
+    position: relative;
+  }
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--gray-900);
+    margin-bottom: 4px;
+  }
+
+  .page-meta {
+    font-size: 13px;
+    color: var(--gray-400);
+    margin-bottom: 28px;
+  }
+
+  /* ─── SECTION CARD ───────────────────────────────────── */
+  .section-card {
+    background: var(--white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 18px;
+    overflow: hidden;
+    border: 1px solid var(--gray-200);
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid var(--gray-100);
+    cursor: pointer;
+    user-select: none;
+    background: var(--white);
+    transition: background .1s;
+  }
+  .section-header:hover { background: var(--gray-50); }
+
+  .section-letter {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(16,185,129,.3);
+  }
+
+  .section-title {
+    flex: 1;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gray-900);
+  }
+
+  .section-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gray-400);
+    background: var(--gray-100);
+    padding: 3px 9px;
+    border-radius: 99px;
+  }
+
+  .section-count.done { color: var(--green); background: var(--green-l); }
+
+  .section-chevron {
+    font-size: 12px;
+    color: var(--gray-400);
+    transition: transform .2s;
+  }
+  .section-card.collapsed .section-chevron { transform: rotate(-90deg); }
+
+  .section-body { padding: 8px 0; }
+  .section-card.collapsed .section-body { display: none; }
+
+  /* ─── CHECKLIST ITEM ─────────────────────────────────── */
+  .item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 10px 20px;
+    transition: background .1s;
+    cursor: pointer;
+  }
+  .item:hover { background: var(--gray-50); }
+
+  .item input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border: 2px solid var(--gray-300, #d1d5db);
+    border-radius: 5px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    cursor: pointer;
+    transition: all .15s;
+    position: relative;
+    background: var(--white);
+  }
+
+  .item input[type="checkbox"]:checked {
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    border-color: transparent;
+  }
+
+  .item input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 3px; top: 0px;
+    width: 6px; height: 10px;
+    border: 2px solid #fff;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
+  }
+
+  .item-label {
+    flex: 1;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--gray-700, #374151);
+    transition: color .15s;
+  }
+
+  .item.checked .item-label {
+    text-decoration: line-through;
+    color: var(--gray-400);
+  }
+
+  .item-label code {
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+    font-size: 12px;
+    background: var(--gray-100);
+    color: var(--green-d);
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--gray-200);
+  }
+
+  .item-label .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .tag-critical { background: #fee2e2; color: #dc2626; }
+  .tag-ios      { background: #dbeafe; color: #1d4ed8; }
+  .tag-android  { background: #d1fae5; color: #065f46; }
+  .tag-rtl      { background: #ede9fe; color: #6d28d9; }
+
+  /* ─── CONFETTI CANVAS ────────────────────────────────── */
+  #confetti-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ─── COMPLETE BANNER ────────────────────────────────── */
+  #complete-banner {
+    display: none;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    color: #fff;
+    text-align: center;
+    padding: 18px 20px;
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+    font-size: 16px;
+    font-weight: 700;
+    box-shadow: 0 4px 20px rgba(16,185,129,.35);
+    animation: pop-in .4s cubic-bezier(.34,1.56,.64,1);
+  }
+  #complete-banner.show { display: block; }
+
+  @keyframes pop-in {
+    from { transform: scale(.88); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+
+  /* ─── RESPONSIVE ─────────────────────────────────────── */
+  @media (max-width: 540px) {
+    .progress-row { flex-direction: column; align-items: stretch; }
+    .progress-label { min-width: unset; }
+    .btn-group { justify-content: flex-end; }
+    .brand-subtitle { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="confetti-canvas"></canvas>
+
+<!-- ─── STICKY BAR ─────────────────────────────────────── -->
+<div id="sticky-bar">
+  <div class="header-brand">
+    <div class="brand-logo">🚲</div>
+    <div class="brand-name">eBike Land</div>
+    <div class="brand-subtitle">QA Checklist</div>
+  </div>
+  <div class="progress-row">
+    <div class="progress-track">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    <div class="progress-label" id="progress-label">
+      <span>0</span> / 0 done &nbsp;·&nbsp; 0%
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-check-all" id="btn-check-all">Check all</button>
+      <button class="btn btn-reset" id="btn-reset">Reset</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── PAGE ──────────────────────────────────────────── -->
+<div id="page">
+  <div class="page-title">Feature QA Checklist</div>
+  <div class="page-meta" id="page-meta">Loading…</div>
+
+  <div id="complete-banner">
+    🎉 All checks passed — ready to ship!
+  </div>
+
+  <div id="checklist"></div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────────────────
+//  DATA
+// ──────────────────────────────────────────────────────────
+const SECTIONS = [
+  {
+    letter: 'A',
+    title: 'Authentication — Email & Password',
+    items: [
+      'Sign-up with a new email creates an account and redirects to onboarding',
+      'Sign-in with correct credentials logs user in and lands on correct home screen',
+      'Sign-in with wrong password shows an error toast',
+      'Sign-in with non-existent email shows appropriate error',
+      '<code>Forgot password</code> flow sends reset email (check inbox)',
+      'Password reset link redirects to app and allows new password entry',
+      'Session persists after closing and reopening the app',
+      'Sign-out clears session; back-navigation does not return to protected screen',
+    ],
+  },
+  {
+    letter: 'B',
+    title: 'Authentication — Google Sign-In',
+    items: [
+      'Tap "Continue with Google" opens the Google OAuth sheet <span class="tag tag-critical">critical</span>',
+      'Selecting a Google account completes sign-in and routes correctly',
+      'Cancelling the Google sheet returns to the sign-in screen gracefully',
+      'New Google user is prompted for role selection (Customer / Technician)',
+      'Returning Google user skips onboarding and goes straight to home',
+      'Google sign-in works on a physical iOS device (not just simulator) <span class="tag tag-ios">iOS</span>',
+      'Google sign-in works on a physical Android device <span class="tag tag-android">Android</span>',
+    ],
+  },
+  {
+    letter: 'C',
+    title: 'Authentication — Apple Sign-In',
+    items: [
+      'Tap "Continue with Apple" triggers Face ID / Touch ID sheet <span class="tag tag-ios">iOS</span> <span class="tag tag-critical">critical</span>',
+      'Completing Apple auth creates/logs in account and routes correctly',
+      'Cancelling Apple sheet returns to sign-in screen without crash',
+      '"Hide My Email" relay address is handled — account created successfully',
+      'Returning Apple user with hidden email logs in to the same account (no duplicate)',
+      'Apple Sign-In button is absent / hidden on Android (not shown to non-iOS users) <span class="tag tag-android">Android</span>',
+      '<code>com.ebikeland.signin</code> bundle ID matches the Apple Service ID exactly',
+      'JWT produced by Apple is accepted by the backend without <code>401</code>',
+    ],
+  },
+  {
+    letter: 'D',
+    title: 'Onboarding Flow',
+    items: [
+      'New user is shown role-selection screen (Customer vs Technician)',
+      'Selecting Customer routes to customer onboarding / home',
+      'Selecting Technician routes to technician onboarding form',
+      'Technician form: all required fields validated before submission',
+      'Technician account shows "pending approval" state after submission',
+      'Pending technician cannot access the technician dashboard until approved',
+      'Admin can approve a technician — confirmed technician gains dashboard access',
+      'Onboarding does NOT re-appear for returning users',
+      'Pressing back during onboarding does not skip required steps',
+    ],
+  },
+  {
+    letter: 'E',
+    title: 'Customer: Map & Technician Discovery',
+    items: [
+      'Map loads and centers on user\'s current location',
+      'Location permission prompt appears on first use; map works after granting',
+      'Denying location shows fallback state (no crash)',
+      'Technician pins appear on map within the configured service radius',
+      'Technician list is sorted by distance (nearest first)',
+      'Tapping a technician pin shows their name, rating, and base price',
+      'No available technicians shows "contact representative" prompt',
+      '"Contact representative" sends the customer\'s details via email (Resend API)',
+      'Map refreshes / re-queries when user moves significantly',
+      'Map is responsive; no layout overflow on small screens <span class="tag tag-critical">critical</span>',
+    ],
+  },
+  {
+    letter: 'F',
+    title: 'Customer: Repair Request Flow',
+    items: [
+      'Step 1 — Photo upload: camera and gallery both work',
+      'Step 1 — Uploading photo progresses to step 2',
+      'Step 1 — Skipping photo (if allowed) moves to step 2 gracefully',
+      'Step 2 — Name, phone, and email fields validate correctly',
+      'Step 2 — Pre-fills fields for logged-in user',
+      'Step 3 — Bike type selector (regular / electric) works',
+      'Step 3 — Repair category list is complete and scrollable',
+      'Step 4 — Price estimate is displayed before confirmation',
+      'Submitting request creates a job and notifies available technicians',
+      'Back-navigation between steps preserves form state',
+    ],
+  },
+  {
+    letter: 'G',
+    title: 'Customer: Active Job & Real-time Tracking',
+    items: [
+      'Accepted job transitions customer screen to "active job" view',
+      'Technician location is shown on the map and updates in near real-time',
+      'Job status milestones update: <code>accepted → on_way → arrived → in_progress → completed</code>',
+      'ETA/distance to customer updates as technician moves',
+      'Chat opens and messages are delivered bidirectionally',
+      'Chat messages persist if app is backgrounded and re-opened',
+      'Push notification fires on new chat message',
+      'Push notification fires when job status changes',
+      'Completed job shows summary with final price',
+    ],
+  },
+  {
+    letter: 'H',
+    title: 'Customer: Payment & Reviews',
+    items: [
+      'Payment screen shows correct final price including any extra work',
+      'Grow payment gateway opens and completes a test transaction <span class="tag tag-critical">critical</span>',
+      'Payment failure shows a clear error and allows retry',
+      'After payment, job moves to <code>completed</code> state',
+      'Review screen appears after job completion',
+      'Submitting a 5-star review saves and is reflected on technician profile',
+      'Submitting a 1-star review with comment saves correctly',
+      'Skipping review (if allowed) does not block order history',
+      'Order history shows all past jobs with correct statuses',
+      'Tapping an order shows full detail and timeline',
+    ],
+  },
+  {
+    letter: 'I',
+    title: 'Technician: Dashboard & Job Management',
+    items: [
+      'Incoming job request appears on dashboard with customer details',
+      'Accept button assigns the job and updates customer view',
+      'Reject button dismisses the request without error',
+      'Status update buttons change job state correctly through each step',
+      'Extra repair request form opens and sends price update to customer',
+      'Customer must acknowledge extra price before technician proceeds',
+      'Job invitation (secondary technician) shows call-out fee',
+      'Completing a job updates earnings correctly',
+      'Multiple simultaneous job requests handled without UI freeze',
+    ],
+  },
+  {
+    letter: 'J',
+    title: 'Technician: Profile & Settings',
+    items: [
+      'Availability toggle (online/offline) hides or shows technician on map',
+      'Service radius slider updates the coverage area shown to customers',
+      'Vehicle type selection is saved and reflected',
+      'Base price field saves and shows to customers in job flow',
+      'Profile photo upload works',
+      'Rating average updates after a new customer review',
+      'Earnings tab shows correct total and per-job breakdown',
+      'Withdrawal request form saves bank details and submits',
+      'Bank details are not shown in plain text after save (privacy)',
+    ],
+  },
+  {
+    letter: 'K',
+    title: 'Admin Panel',
+    items: [
+      'Admin tab is visible only to accounts with admin email addresses',
+      'Non-admin accounts do NOT see the admin tab',
+      'Approve technician button changes status to approved',
+      'Revoke technician removes dashboard access immediately',
+      'Remove technician deletes account from the list',
+      'Admin actions are reflected for the affected technician without app restart',
+    ],
+  },
+  {
+    letter: 'L',
+    title: 'RTL, Hebrew & Localisation',
+    items: [
+      'App renders correctly in RTL layout (Hebrew locale) <span class="tag tag-rtl">RTL</span>',
+      'Text is not clipped or overflowing in Hebrew strings <span class="tag tag-rtl">RTL</span>',
+      'Back-navigation chevrons point the correct direction in RTL <span class="tag tag-rtl">RTL</span>',
+      'Map and price labels render Hebrew numerals / currency correctly',
+      'Email notifications sent to customers are in Hebrew',
+      'All user-facing error messages are in Hebrew',
+      'Keyboard type is set correctly for Hebrew text inputs',
+    ],
+  },
+  {
+    letter: 'M',
+    title: 'Notifications, Sounds & Haptics',
+    items: [
+      'Permission requested on first notification-triggering action',
+      'Push notification received when app is in background (job update)',
+      'Push notification received when app is fully closed',
+      'Tapping notification deep-links to the correct screen',
+      '<code>new_job</code> sound plays on technician dashboard when request arrives',
+      '<code>success</code> haptic fires on job acceptance / payment complete',
+      '<code>error</code> haptic fires on payment failure / form validation error',
+      'Sounds respect iOS silent-mode switch <span class="tag tag-ios">iOS</span>',
+    ],
+  },
+  {
+    letter: 'N',
+    title: 'Performance & Edge Cases',
+    items: [
+      'Cold-start time from launch to interactive map is under 4 seconds',
+      'App handles loss of network gracefully (shows offline state, no crash)',
+      'App recovers when network returns without requiring restart',
+      'Very long technician names / addresses do not break card layouts',
+      'Uploading a large photo does not crash the repair request flow',
+      'Low battery / background restriction does not silently drop real-time updates',
+      'Running on minimum supported iOS version (confirm in <code>app.json</code>)',
+      'Running on minimum supported Android API level (confirm in <code>app.json</code>)',
+      'No <code>console.error</code> or red-box errors appear during the golden path',
+      'Production build (EAS) tested — not just Expo Go dev client <span class="tag tag-critical">critical</span>',
+    ],
+  },
+];
+
+// ──────────────────────────────────────────────────────────
+//  STORAGE KEY
+// ──────────────────────────────────────────────────────────
+const STORAGE_KEY = 'ebikeland_qa_v1';
+
+// ──────────────────────────────────────────────────────────
+//  STATE
+// ──────────────────────────────────────────────────────────
+let state = {};         // id → boolean
+let confettiFired = false;
+
+function totalItems() {
+  return SECTIONS.reduce((s, sec) => s + sec.items.length, 0);
+}
+
+function doneItems() {
+  return Object.values(state).filter(Boolean).length;
+}
+
+function itemId(secIdx, itemIdx) {
+  return `${secIdx}_${itemIdx}`;
+}
+
+// ──────────────────────────────────────────────────────────
+//  PERSIST
+// ──────────────────────────────────────────────────────────
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) state = JSON.parse(raw);
+  } catch(_) { state = {}; }
+}
+
+// ──────────────────────────────────────────────────────────
+//  RENDER
+// ──────────────────────────────────────────────────────────
+function buildChecklist() {
+  const container = document.getElementById('checklist');
+  container.innerHTML = '';
+
+  SECTIONS.forEach((sec, si) => {
+    const card = document.createElement('div');
+    card.className = 'section-card';
+    card.dataset.section = si;
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'section-header';
+    header.innerHTML = `
+      <div class="section-letter">${sec.letter}</div>
+      <div class="section-title">${sec.title}</div>
+      <div class="section-count" id="count-${si}">0 / ${sec.items.length}</div>
+      <span class="section-chevron">▼</span>
+    `;
+    header.addEventListener('click', () => {
+      card.classList.toggle('collapsed');
+    });
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'section-body';
+
+    sec.items.forEach((text, ii) => {
+      const id = itemId(si, ii);
+      const row = document.createElement('label');
+      row.className = 'item' + (state[id] ? ' checked' : '');
+      row.innerHTML = `
+        <input type="checkbox" id="${id}" ${state[id] ? 'checked' : ''} />
+        <span class="item-label">${text}</span>
+      `;
+      row.querySelector('input').addEventListener('change', e => {
+        state[id] = e.target.checked;
+        row.classList.toggle('checked', e.target.checked);
+        saveState();
+        updateProgress();
+      });
+      body.appendChild(row);
+    });
+
+    card.appendChild(header);
+    card.appendChild(body);
+    container.appendChild(card);
+  });
+}
+
+function updateSectionCounts() {
+  SECTIONS.forEach((sec, si) => {
+    const done = sec.items.filter((_, ii) => state[itemId(si, ii)]).length;
+    const el = document.getElementById(`count-${si}`);
+    if (!el) return;
+    el.textContent = `${done} / ${sec.items.length}`;
+    el.classList.toggle('done', done === sec.items.length);
+  });
+}
+
+function updateProgress() {
+  const total = totalItems();
+  const done  = doneItems();
+  const pct   = total ? Math.round(done / total * 100) : 0;
+
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-label').innerHTML =
+    `<span>${done}</span> / ${total} done &nbsp;·&nbsp; ${pct}%`;
+
+  updateSectionCounts();
+
+  const banner = document.getElementById('complete-banner');
+  if (pct === 100) {
+    banner.classList.add('show');
+    if (!confettiFired) {
+      confettiFired = true;
+      fireConfetti();
+    }
+  } else {
+    banner.classList.remove('show');
+    if (pct < 100) confettiFired = false;
+  }
+}
+
+// ──────────────────────────────────────────────────────────
+//  CONFETTI
+// ──────────────────────────────────────────────────────────
+function fireConfetti() {
+  const canvas = document.getElementById('confetti-canvas');
+  const myConfetti = confetti.create(canvas, { resize: true, useWorker: true });
+
+  const opts = {
+    particleCount: 120,
+    spread: 80,
+    origin: { x: 0.5, y: 0.55 },
+    colors: ['#10b981','#3b82f6','#8b5cf6','#f59e0b','#ffffff'],
+    scalar: 1.1,
+  };
+
+  myConfetti(opts);
+  setTimeout(() => myConfetti({ ...opts, particleCount: 80, spread: 100 }), 820);
+}
+
+// ──────────────────────────────────────────────────────────
+//  BUTTONS
+// ──────────────────────────────────────────────────────────
+document.getElementById('btn-check-all').addEventListener('click', () => {
+  SECTIONS.forEach((sec, si) => {
+    sec.items.forEach((_, ii) => {
+      const id = itemId(si, ii);
+      state[id] = true;
+    });
+  });
+  saveState();
+  // Re-render checkboxes
+  SECTIONS.forEach((sec, si) => {
+    sec.items.forEach((_, ii) => {
+      const id = itemId(si, ii);
+      const el = document.getElementById(id);
+      if (el) {
+        el.checked = true;
+        el.closest('.item').classList.add('checked');
+      }
+    });
+  });
+  updateProgress();
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  state = {};
+  confettiFired = false;
+  saveState();
+  SECTIONS.forEach((sec, si) => {
+    sec.items.forEach((_, ii) => {
+      const id = itemId(si, ii);
+      const el = document.getElementById(id);
+      if (el) {
+        el.checked = false;
+        el.closest('.item').classList.remove('checked');
+      }
+    });
+  });
+  updateProgress();
+  document.getElementById('complete-banner').classList.remove('show');
+});
+
+// ──────────────────────────────────────────────────────────
+//  INIT
+// ──────────────────────────────────────────────────────────
+(function init() {
+  loadState();
+  buildChecklist();
+  updateProgress();
+
+  const total = totalItems();
+  document.getElementById('page-meta').textContent =
+    `${SECTIONS.length} sections · ${total} test cases · updated ${new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'})}`;
+})();
+</script>
+</body>
+</html>

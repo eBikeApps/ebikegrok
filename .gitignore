@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Environment secrets
+.env
+.env.production
+.env.local
+.env.*.local
+backend/.env
+backend/.env.production
+mobile/.env
+mobile/.env.production
+
+# Build / cache
+.expo/
+dist/
+out/
+*.tsbuildinfo
+.DS_Store
+
+# Local databases
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# Logs
+*.log
+server.log
+studio.log
+
+# IDE
+.idea/
+.claude/settings.local.json

@@ -1,0 +1,251 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id
+  name          String
+  email         String        @unique
+  emailVerified Boolean       @default(false)
+  image         String?
+  role          String        @default("pending") // "pending" (new user), "customer", or "technician"
+  isApproved    Boolean       @default(true) // false for technicians until approved; true for customers
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  customerJobs  Job[]         @relation("CustomerJobs")
+  technicianJobs Job[]        @relation("TechnicianJobs")
+  transactions  Transaction[]
+  customerReviews  Review[]   @relation("CustomerReviews")
+  technicianReviews Review[]  @relation("TechnicianReviews")
+
+  // Customer-specific fields
+  address       String?
+
+  // Technician-specific fields
+  phone         String?
+  bio           String?
+  rating        Float?        @default(0)
+  totalReviews  Int?          @default(0)
+  vehicleType   String?       // "רכב + ציוד מלא", "אופנוע + ציוד נייד", etc.
+  serviceRadius Int?          @default(15) // in km
+  isAvailable   Boolean?      @default(false)
+  currentLocationLat Float?
+  currentLocationLng Float?
+  basePrice     Int?          @default(50) // in NIS
+  totalEarnings Int?          @default(0)
+
+  // Password reset fields
+  resetToken       String?
+  resetTokenExpiry DateTime?
+
+  // Push notifications
+  expoPushToken    String?
+
+  // Activity tracking for auto-unavailability
+  lastSeenAt       DateTime?
+
+  // Call-out fee for when another technician invites them
+  callOutFee       Int?     @default(50)
+
+  // Job invitations sent/received
+  sentInvitations     JobInvitation[] @relation("InvitationInviter")
+  receivedInvitations JobInvitation[] @relation("InvitationInvitee")
+  secondaryJobs       Job[]           @relation("SecondaryTechnicianJobs")
+  sentMessages        Message[]       @relation("SentMessages")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Job {
+  id                    String   @id @default(cuid())
+  jobNumber             Int      @unique @default(autoincrement())
+  customerId            String
+  technicianId          String?
+  secondaryTechnicianId String?
+  status                String   @default("pending") // pending, accepted, in_progress, completed, cancelled
+  paymentStatus         String   @default("pending") // pending, paid, failed
+  photoUrl              String?
+  description           String
+  bikeType              String   // electric, regular
+  category              String
+  estimatedPriceMin     Int
+  estimatedPriceMax     Int
+  finalPrice            Int?
+  customerAddress       String?
+  customerLocationLat   Float
+  customerLocationLng   Float
+  technicianLocationLat Float?
+  technicianLocationLng Float?
+  createdAt             DateTime @default(now())
+  acceptedAt            DateTime?
+  onWayAt               DateTime?
+  arrivedAt             DateTime?
+  inProgressAt          DateTime?
+  completedAt           DateTime?
+  cancelledAt           DateTime?
+
+  customer              User     @relation("CustomerJobs", fields: [customerId], references: [id], onDelete: Cascade)
+  technician            User?    @relation("TechnicianJobs", fields: [technicianId], references: [id], onDelete: SetNull)
+  secondaryTechnician   User?    @relation("SecondaryTechnicianJobs", fields: [secondaryTechnicianId], references: [id], onDelete: SetNull)
+  review                Review?
+  invitations           JobInvitation[]
+  payment               Payment?
+  extraRepairRequests   ExtraRepairRequest[]
+  messages              Message[]
+
+  @@index([customerId])
+  @@index([technicianId])
+  @@index([secondaryTechnicianId])
+  @@index([status])
+  @@index([paymentStatus])
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  technicianId  String
+  jobId         String?
+  type          String   // earning, withdrawal
+  amount        Int
+  status        String   @default("completed") // completed, pending, failed
+  // Bank details for withdrawal requests
+  bankName      String?
+  branchNumber  String?
+  accountNumber String?
+  accountHolder String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  technician    User     @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+
+  @@index([technicianId])
+  @@index([type])
+  @@index([status])
+}
+
+model Payment {
+  id                  String    @id @default(cuid())
+  jobId               String    @unique
+  job                 Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  amount              Int
+  commissionAmount    Int
+  netAmount           Int
+  status              String    @default("pending") // pending, completed, failed, refunded
+  growTransactionCode String?
+  paymentUrl          String?
+  createdAt           DateTime  @default(now())
+  paidAt              DateTime?
+
+  @@index([jobId])
+  @@index([status])
+}
+
+model ExtraRepairRequest {
+  id                  String    @id @default(cuid())
+  jobId               String
+  job                 Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId        String
+  description         String
+  amount              Int
+  status              String    @default("pending") // pending, paid, rejected
+  growTransactionCode String?
+  paymentUrl          String?
+  createdAt           DateTime  @default(now())
+  paidAt              DateTime?
+
+  @@index([jobId])
+  @@index([technicianId])
+  @@index([status])
+}
+
+model JobInvitation {
+  id          String   @id @default(cuid())
+  jobId       String
+  inviterId   String   // primary technician who sent the invite
+  inviteeId   String   // secondary technician being invited
+  status      String   @default("pending") // pending, accepted, rejected
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  inviter     User     @relation("InvitationInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee     User     @relation("InvitationInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([inviterId])
+  @@index([inviteeId])
+  @@index([status])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  jobId     String
+  senderId  String
+  text      String
+  createdAt DateTime @default(now())
+
+  job    Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  sender User @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([senderId])
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  jobId        String   @unique
+  customerId   String
+  technicianId String
+  rating       Int      // 1-5
+  comment      String?
+  createdAt    DateTime @default(now())
+
+  customer     User     @relation("CustomerReviews", fields: [customerId], references: [id], onDelete: Cascade)
+  technician   User     @relation("TechnicianReviews", fields: [technicianId], references: [id], onDelete: Cascade)
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([technicianId])
+  @@index([customerId])
+}
