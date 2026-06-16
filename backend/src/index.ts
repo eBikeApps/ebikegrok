@@ -126,11 +126,17 @@ app.use("*", logger());
 app.get("/health", (c) => c.json({ status: "ok" }));
 
 // Diagnostic endpoint — shows which auth providers are active AND the exact redirect URIs being used
+const emailSignupDisabled = ["1", "true", "yes"].includes(
+  (process.env.DISABLE_EMAIL_SIGNUP ?? "").trim().toLowerCase()
+);
+
 app.get("/api/auth/providers-check", (c) => {
   const resolvedBase = (process.env.OAUTH_BASE_URL || process.env.BACKEND_URL || "http://localhost:3000").replace(/\/$/, "");
   return c.json({
     google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
     apple: !!(process.env.APPLE_CLIENT_ID && process.env.APPLE_TEAM_ID && process.env.APPLE_KEY_ID && process.env.APPLE_PRIVATE_KEY),
+    emailSignUp: !emailSignupDisabled,
+    emailSignIn: true,
     BACKEND_URL: process.env.BACKEND_URL || "(not set)",
     OAUTH_BASE_URL: process.env.OAUTH_BASE_URL || "(not set)",
     resolvedBaseURL: resolvedBase,
@@ -139,9 +145,8 @@ app.get("/api/auth/providers-check", (c) => {
   });
 });
 
-// Email/password sign-up is enabled (public registration allowed).
-// The three manual blocking routes below were removed so the normal
-// Better Auth handler can process /api/auth/sign-up/email etc.
+// Email/password sign-up: handled by Better Auth (no manual 410 block routes).
+// Optional kill-switch: DISABLE_EMAIL_SIGNUP=true in env (off by default).
 
 
 
@@ -163,8 +168,16 @@ function isDashboardAdmin(c: any): boolean {
   return !!configured && secretHeader === configured;
 }
 
-// Auth handler
+// Auth handler — must own /api/auth/* (including sign-up/email, sign-in/email)
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
+  if (
+    emailSignupDisabled &&
+    c.req.method === "POST" &&
+    (c.req.path === "/api/auth/sign-up/email" || c.req.path.endsWith("/sign-up/email"))
+  ) {
+    return c.json({ message: "Email/password sign-up is disabled by server config." }, 403);
+  }
+
   console.log("[Auth Handler] Processing:", c.req.method, c.req.path);
   const res = await auth.handler(c.req.raw);
   if (c.req.path === "/api/auth/expo-authorization-proxy") {

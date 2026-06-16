@@ -92,6 +92,8 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
+    // Public email registration — do not add manual 410 routes in index.ts
+    minPasswordLength: 6,
   },
 
   // Add custom user fields to session

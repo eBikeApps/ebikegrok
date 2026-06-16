@@ -40,6 +40,9 @@ const envSchema = z.object({
   APPLE_KEY_ID: z.string().optional(),        // Key ID from the Sign In with Apple private key
   APPLE_PRIVATE_KEY: z.string().optional(),   // PEM content of .p8 file (newlines as \n)
 
+  // Auth — set DISABLE_EMAIL_SIGNUP=true only to block public email registration
+  DISABLE_EMAIL_SIGNUP: z.string().optional().default(""),
+
   // Grow (Meshulam) payment gateway
   GROW_API_BASE: z.string().optional().default("https://secure.meshulam.co.il/api/light/server/1.0"),
   GROW_USER_ID: z.string().optional(),
