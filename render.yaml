@@ -1,0 +1,17 @@
+# Render Blueprint — connect repo eBikeApps/ebikegrok, branch main.
+# Dashboard: Settings → Root Directory must be "backend" if not using this blueprint.
+services:
+  - type: web
+    name: ebikel-backend
+    runtime: node
+    region: frankfurt
+    plan: free
+    rootDir: backend
+    buildCommand: bun install && bunx prisma generate
+    startCommand: bun run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: BUN_VERSION
+        value: "1.2.0"
