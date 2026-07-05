@@ -13,6 +13,7 @@ import { messagesRouter } from "./routes/messages";
 import { streetsRouter } from "./routes/streets";
 import { logger } from "hono/logger";
 import { auth } from "./auth";
+import { ensureJobPhotosBucket, isSupabaseStorageConfigured } from "./lib/supabase-storage";
 
 // Type the Hono app with user/session variables
 type HonoEnv = {
@@ -128,8 +129,18 @@ const emailSignupDisabled = ["1", "true", "yes"].includes(
 );
 
 // Health check endpoint (version helps verify Render deployed latest code)
-const BUILD_VERSION = "2026-06-17-email-signup";
-app.get("/health", (c) => c.json({ status: "ok", version: BUILD_VERSION, emailSignUpEnabled: !emailSignupDisabled }));
+const BUILD_VERSION = "2026-07-06-email-signup-v2";
+app.get("/health", (c) => {
+  const mockFlag = ["1", "true", "yes"].includes((process.env.MOCK_PAYMENTS ?? "").trim().toLowerCase());
+  const growConfigured = !!(process.env.GROW_USER_ID?.trim() && process.env.GROW_PAGE_CODE?.trim());
+  const mockPayments = mockFlag || !growConfigured;
+  return c.json({
+    status: "ok",
+    version: BUILD_VERSION,
+    emailSignUpEnabled: !emailSignupDisabled,
+    mockPayments,
+  });
+});
 
 app.get("/api/auth/providers-check", (c) => {
   const resolvedBase = (process.env.OAUTH_BASE_URL || process.env.BACKEND_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -171,17 +182,18 @@ function isDashboardAdmin(c: any): boolean {
 
 // Auth handler — must own /api/auth/* (including sign-up/email, sign-in/email)
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
-  if (
-    emailSignupDisabled &&
+  const authPath = new URL(c.req.url).pathname;
+  const isEmailSignUp =
     c.req.method === "POST" &&
-    (c.req.path === "/api/auth/sign-up/email" || c.req.path.endsWith("/sign-up/email"))
-  ) {
+    (authPath === "/api/auth/sign-up/email" || authPath.endsWith("/sign-up/email"));
+
+  if (emailSignupDisabled && isEmailSignUp) {
     return c.json({ message: "Email/password sign-up is disabled by server config." }, 403);
   }
 
-  console.log("[Auth Handler] Processing:", c.req.method, c.req.path);
+  console.log("[Auth Handler] Processing:", c.req.method, authPath);
   const res = await auth.handler(c.req.raw);
-  if (c.req.path === "/api/auth/expo-authorization-proxy") {
+  if (authPath === "/api/auth/expo-authorization-proxy") {
     const loc = res.headers.get("location") || "(no location header)";
     console.log("[OAuth] Full redirect location:", loc);
     try {
@@ -1033,6 +1045,39 @@ app.delete("/api/users/me", async (c) => {
   }
 });
 
+// Alias for mobile profile screens that call GET /api/users/me
+app.get("/api/users/me", async (c) => {
+  const sessionUser = c.get("user");
+  if (!sessionUser) return c.body(null, 401);
+
+  try {
+    const { prisma } = await import("./prisma");
+    const fullUser = await prisma.user.findUnique({
+      where: { id: sessionUser.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        emailVerified: true,
+        image: true,
+        role: true,
+        isApproved: true,
+        phone: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!fullUser) return c.body(null, 404);
+
+    const isAdmin = isAdminUser(fullUser);
+    return c.json({ user: { ...fullUser, isAdmin } });
+  } catch (error) {
+    console.error("Error fetching user (users/me):", error);
+    return c.json({ message: "Internal server error" }, 500);
+  }
+});
+
 // Update logged-in user's profile (image, role)
 app.patch("/api/users/me", async (c) => {
   const user = c.get("user");
@@ -1122,6 +1167,17 @@ app.patch("/api/technicians/heartbeat", async (c) => {
 });
 
 const port = Number(process.env.PORT) || 3000;
+
+void (async () => {
+  await ensureJobPhotosBucket();
+  if (isSupabaseStorageConfigured()) {
+    console.log("[Storage] Supabase job-photos upload enabled");
+  } else {
+    console.warn(
+      "[Storage] SUPABASE_SERVICE_ROLE_KEY not set — photos fall back to local disk (or mobile direct upload)"
+    );
+  }
+})();
 
 // Auto-unavailability: mark technicians offline after 5 minutes without a ping
 const STALE_MS = 5 * 60 * 1000;

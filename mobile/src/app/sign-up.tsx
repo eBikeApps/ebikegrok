@@ -11,7 +11,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { authClient } from "@/lib/auth/auth-client";
-import { useInvalidateSession } from "@/lib/auth/use-session";
+import { SESSION_QUERY_KEY } from "@/lib/auth/use-session";
+import { useQueryClient } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
 import Animated, {
   useSharedValue,
@@ -66,7 +67,7 @@ function AppleIcon() {
 export default function SignUp() {
   const [loadingProvider, setLoadingProvider] = useState<'google' | 'apple' | 'email' | null>(null);
   const [errorModal, setErrorModal] = useState({ visible: false, message: '' });
-  const invalidateSession = useInvalidateSession();
+  const queryClient = useQueryClient();
 
   // Email signup form state
   const [showEmailForm, setShowEmailForm] = useState(false);
@@ -104,7 +105,8 @@ export default function SignUp() {
         setErrorModal({ visible: true, message: errMsg || 'לא ניתן להתחבר כרגע.' });
       } else {
         playSystemSound('success');
-        await invalidateSession();
+        queryClient.removeQueries({ queryKey: ['me'] });
+        await queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
         router.replace('/');
       }
     } catch (err: unknown) {
@@ -136,12 +138,20 @@ export default function SignUp() {
       console.log("[SignUp] email result:", result.data?.user?.email ?? result.error);
       if (result?.error) {
         playSystemSound('error');
-        setErrorModal({ visible: true, message: result.error.message || "ההרשמה נכשלה. נסה שוב." });
+        const raw = result.error.message || "";
+        const friendly =
+          raw.includes("disabled") || raw.includes("410") || raw.includes("403")
+            ? "הרשמה באימייל אינה זמינה כרגע בשרת. נסה Google/Apple או פנה לתמיכה."
+            : raw.includes("already") || raw.includes("exists") || raw.includes("קיים")
+              ? "כתובת האימייל כבר רשומה. נסה להתחבר."
+              : raw || "ההרשמה נכשלה. נסה שוב.";
+        setErrorModal({ visible: true, message: friendly });
       } else {
         playSystemSound('success');
-        await invalidateSession();
-        // After email registration, go to role selection for customer/technician choice
-        router.replace('/role-select');
+        queryClient.removeQueries({ queryKey: ['me'] });
+        await queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
+        // Same as sign-in / social: index routes to home or role-select by role
+        router.replace('/');
       }
     } catch (err: unknown) {
       console.error("[SignUp] Email signup exception:", err);
