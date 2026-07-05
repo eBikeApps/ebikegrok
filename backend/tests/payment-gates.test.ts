@@ -1,5 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { canCreatePayment, canTransitionToOnWay, type JobLikeForPayment } from "../src/lib/payment-gates";
+import {
+  canCompleteJob,
+  canCreatePayment,
+  canProgressWithPayment,
+  canTransitionToOnWay,
+  type JobLikeForPayment,
+} from "../src/lib/payment-gates";
 
 // TDD: These tests were written *before* the real guards in routes + helpers.
 // They exercise the pure decision functions + will be supplemented by route-level checks.
@@ -43,6 +49,22 @@ describe("Payment after accept + on_way gate (core spec)", () => {
     const job: JobLikeForPayment = { id: "j6", status: "pending", paymentStatus: "paid" };
     const res = canTransitionToOnWay(job);
     expect(res.ok).toBe(false);
+  });
+
+  test("cannot complete job without payment", () => {
+    const job: JobLikeForPayment = { id: "j7", status: "in_progress", paymentStatus: "pending" };
+    expect(canCompleteJob(job).ok).toBe(false);
+    expect(canProgressWithPayment(job, "completed").ok).toBe(false);
+  });
+
+  test("can complete only when in_progress and paid", () => {
+    const job: JobLikeForPayment = { id: "j8", status: "in_progress", paymentStatus: "paid" };
+    expect(canCompleteJob(job).ok).toBe(true);
+  });
+
+  test("cannot advance to arrived without payment", () => {
+    const job: JobLikeForPayment = { id: "j9", status: "on_way", paymentStatus: "pending" };
+    expect(canProgressWithPayment(job, "arrived").ok).toBe(false);
   });
 });
 

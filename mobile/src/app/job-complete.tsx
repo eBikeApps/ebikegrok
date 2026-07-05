@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, TextInput, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -7,12 +7,15 @@ import Animated, { FadeInUp, FadeIn, ZoomIn } from 'react-native-reanimated';
 import { Star, Check, PartyPopper } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import LottieView from 'lottie-react-native';
 
 import { useLanguageStore, useActiveJobStore } from '@/lib/store';
 import { playSystemSound } from '@/lib/system-sounds';
-import { RatingCategories } from '@/lib/types';
+import { Job, RatingCategories } from '@/lib/types';
 import { cn } from '@/lib/cn';
+import { api } from '@/lib/api/api';
+import { markActiveJobFlowFinished, shouldSkipCompletionScreen } from '@/lib/completion-flow';
+import { clearCustomerActiveJobState, fetchJobById } from '@/lib/active-job-sync';
+import { formatJobReference } from '@/lib/job-reference';
 
 const ratingCategories: { key: keyof RatingCategories; labelKey: string }[] = [
   { key: 'professionalism', labelKey: 'professionalism' },
@@ -28,7 +31,7 @@ export default function JobCompleteScreen() {
   const language = useLanguageStore((s) => s.language);
 
   const activeJob = useActiveJobStore((s) => s.activeJob);
-  const setActiveJob = useActiveJobStore((s) => s.setActiveJob);
+  const [job, setJob] = useState<Job | null>(null);
 
   const [rating, setRating] = useState(0);
   const [selectedCategories, setSelectedCategories] = useState<RatingCategories>({
@@ -39,6 +42,31 @@ export default function JobCompleteScreen() {
   });
   const [feedback, setFeedback] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const jobId = params.id || activeJob?.id;
+
+  useEffect(() => {
+    if (!jobId) return;
+    let cancelled = false;
+    (async () => {
+      if (await shouldSkipCompletionScreen(jobId)) {
+        if (!cancelled) {
+          clearCustomerActiveJobState();
+          router.replace('/(customer)/(tabs)');
+        }
+        return;
+      }
+      const fetched = await fetchJobById(jobId);
+      if (!cancelled && fetched) setJob(fetched);
+    })();
+    return () => { cancelled = true; };
+  }, [jobId, router]);
+
+  const finishAndGoHome = async () => {
+    if (jobId) await markActiveJobFlowFinished(jobId);
+    clearCustomerActiveJobState();
+    router.replace('/(customer)/(tabs)');
+  };
 
   const handleRating = (value: number) => {
     Haptics.selectionAsync();
@@ -53,32 +81,67 @@ export default function JobCompleteScreen() {
     }));
   };
 
-  const handleSubmit = () => {
-    if (rating === 0) {
-      playSystemSound('error');
+  const handleSubmit = async () => {
+    if (rating === 0 || !jobId || submitting) {
+      if (rating === 0) playSystemSound('error');
       return;
     }
 
-    playSystemSound('complete');
-    setShowSuccess(true);
+    setSubmitting(true);
+    try {
+      const categoryNotes = ratingCategories
+        .filter((c) => selectedCategories[c.key])
+        .map((c) => t(c.labelKey as keyof typeof t))
+        .join(', ');
+      const comment = [feedback.trim(), categoryNotes].filter(Boolean).join(' — ') || undefined;
 
-    // In real app, submit rating to backend
-    setTimeout(() => {
-      setActiveJob(null);
-      router.replace('/(customer)/(tabs)');
-    }, 2000);
+      await api.post('/api/reviews', { jobId, rating, comment });
+      await markActiveJobFlowFinished(jobId);
+      playSystemSound('complete');
+      setShowSuccess(true);
+      setTimeout(() => {
+        clearCustomerActiveJobState();
+        router.replace('/(customer)/(tabs)');
+      }, 1500);
+    } catch (err: any) {
+      if (err?.status === 409) {
+        await markActiveJobFlowFinished(jobId);
+        clearCustomerActiveJobState();
+        router.replace('/(customer)/(tabs)');
+        return;
+      }
+      playSystemSound('error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
     Haptics.selectionAsync();
-    setActiveJob(null);
-    router.replace('/(customer)/(tabs)');
+    await finishAndGoHome();
   };
 
-  // Use the final price set by the technician; fall back to estimate only if never set
-  const hasFinalPrice = activeJob?.final_price !== undefined && activeJob.final_price !== null;
-  const totalPrice = hasFinalPrice ? (activeJob!.final_price as number) : (activeJob?.estimated_price_min ?? 0);
-  const priceLabel = hasFinalPrice ? 'מחיר סופי' : 'הערכת מחיר';
+  const displayJob = job ?? activeJob;
+  const hasFinalPrice = displayJob?.final_price !== undefined && displayJob.final_price !== null;
+  const totalPrice = hasFinalPrice
+    ? (displayJob!.final_price as number)
+    : (displayJob?.estimated_price_min ?? 0);
+  const priceLabel =
+    language === 'he'
+      ? hasFinalPrice
+        ? 'מחיר סופי'
+        : 'הערכת מחיר'
+      : hasFinalPrice
+        ? 'Final price'
+        : 'Estimated price';
+  const isPaid = displayJob?.payment_status === 'paid';
+  const paymentLabel = isPaid
+    ? language === 'he'
+      ? 'שולם'
+      : 'Paid'
+    : language === 'he'
+      ? 'ממתין לתשלום'
+      : 'Payment pending';
 
   if (showSuccess) {
     return (
@@ -121,28 +184,30 @@ export default function JobCompleteScreen() {
         >
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-gray-700 font-semibold">{t('jobSummary')}</Text>
-            {activeJob?.job_number && (
+            {!!formatJobReference(displayJob?.job_number) && (
               <View className="bg-blue-100 rounded-full px-3 py-1">
-                <Text className="text-blue-600 text-xs font-bold">#{activeJob.job_number}</Text>
+                <Text className="text-blue-600 text-xs font-bold">
+                  {formatJobReference(displayJob?.job_number)}
+                </Text>
               </View>
             )}
           </View>
 
           {/* Technician */}
-          {activeJob?.technician && (
+          {displayJob?.technician && (
             <View className="flex-row items-center mb-4 pb-4 border-b border-gray-200">
               <Image
-                source={{ uri: activeJob.technician.avatar_url }}
+                source={{ uri: displayJob.technician.avatar_url }}
                 style={{ width: 48, height: 48, borderRadius: 24 }}
               />
               <View className="ml-3">
                 <Text className="text-gray-900 font-semibold">
-                  {activeJob.technician.name}
+                  {displayJob.technician.name}
                 </Text>
                 <View className="flex-row items-center mt-1">
                   <Star size={14} color="#F59E0B" fill="#F59E0B" />
                   <Text className="text-gray-500 text-sm ml-1">
-                    {activeJob.technician.rating}
+                    {displayJob.technician.rating}
                   </Text>
                 </View>
               </View>
@@ -159,10 +224,15 @@ export default function JobCompleteScreen() {
           </View>
 
           {/* Payment Status */}
-          <View className="mt-4 bg-blue-100 rounded-xl p-3 flex-row items-center justify-center">
-            <Check size={18} color="#3B82F6" />
-            <Text className="text-blue-700 font-medium ml-2">
-              {language === 'he' ? 'שולם בכרטיס אשראי' : 'Paid by Credit Card'}
+          <View
+            className={cn(
+              'mt-4 rounded-xl p-3 flex-row items-center justify-center',
+              isPaid ? 'bg-blue-100' : 'bg-yellow-100'
+            )}
+          >
+            <Check size={18} color={isPaid ? '#3B82F6' : '#D97706'} />
+            <Text className={cn('font-medium ml-2', isPaid ? 'text-blue-700' : 'text-yellow-700')}>
+              {paymentLabel}
             </Text>
           </View>
         </Animated.View>
@@ -241,8 +311,8 @@ export default function JobCompleteScreen() {
       <View className="absolute bottom-0 left-0 right-0 bg-white px-4 pb-8 pt-4 border-t border-gray-100">
         <Pressable
           onPress={handleSubmit}
-          disabled={rating === 0}
-          className={cn('rounded-2xl overflow-hidden', rating === 0 && 'opacity-50')}
+          disabled={rating === 0 || submitting}
+          className={cn('rounded-2xl overflow-hidden', (rating === 0 || submitting) && 'opacity-50')}
         >
           <LinearGradient
             colors={['#3B82F6', '#8B5CF6']}
@@ -250,7 +320,9 @@ export default function JobCompleteScreen() {
             end={{ x: 1, y: 0 }}
             style={{ paddingVertical: 16, alignItems: 'center' }}
           >
-            <Text className="text-white font-bold text-lg">{t('submitRating')}</Text>
+            <Text className="text-white font-bold text-lg">
+              {submitting ? (language === 'he' ? 'שולח...' : 'Submitting...') : t('submitRating')}
+            </Text>
           </LinearGradient>
         </Pressable>
 

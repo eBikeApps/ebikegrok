@@ -34,7 +34,7 @@ model User {
   rating        Float?        @default(0)
   totalReviews  Int?          @default(0)
   vehicleType   String?       // "רכב + ציוד מלא", "אופנוע + ציוד נייד", etc.
-  serviceRadius Int?          @default(15) // in km
+  serviceRadius Int?          @default(40) // in km
   isAvailable   Boolean?      @default(false)
   currentLocationLat Float?
   currentLocationLng Float?

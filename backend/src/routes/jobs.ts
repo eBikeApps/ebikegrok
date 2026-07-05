@@ -3,8 +3,9 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { sendPushNotification, sendPushNotificationToMany } from "../lib/push-notifications";
-import { canTransitionToOnWay } from "../lib/payment-gates";
+import { canCompleteJob, canProgressWithPayment, canTransitionToOnWay } from "../lib/payment-gates";
 import { createJobSchema } from "../lib/job-create-schema";
+import { formatJobReference, withJobReference, withJobReferences } from "../lib/job-reference";
 
 const updateStatusSchema = z.object({
   status: z.enum(["accepted", "on_way", "arrived", "in_progress", "completed", "cancelled"]),
@@ -63,7 +64,7 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
         customerId: user.id,
         status: { in: ["pending", "accepted", "on_way", "arrived", "in_progress"] },
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, jobNumber: true },
     });
     if (existingActive) {
       return c.json(
@@ -71,6 +72,8 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
           message: "כבר יש לך הזמנה פעילה. סיים או בטל אותה לפני יצירת הזמנה חדשה.",
           activeJobId: existingActive.id,
           activeJobStatus: existingActive.status,
+          activeJobNumber: existingActive.jobNumber,
+          activeJobReference: formatJobReference(existingActive.jobNumber),
         },
         409
       );
@@ -79,7 +82,12 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
     // If a technician is specified, verify they exist and are available
     if (technicianId) {
       const technician = await prisma.user.findUnique({
-        where: { id: technicianId, role: "technician", isApproved: true },
+        where: {
+          id: technicianId,
+          role: "technician",
+          isApproved: true,
+          isAvailable: true,
+        },
       });
       if (!technician) {
         return c.json({ message: "Technician not found or not available" }, 404);
@@ -130,14 +138,19 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
           await sendPushNotification(
             techWithToken.expoPushToken,
             "🔔 בקשת תיקון חדשה!",
-            `${customerName} מחכה לעזרה עם ${bikeLabel}`,
-            { jobId: job.id, screen: "/(technician)/(tabs)" }
+            `${customerName} מחכה לעזרה עם ${bikeLabel} · ${formatJobReference(job.jobNumber)}`,
+            { jobId: job.id, jobNumber: job.jobNumber, screen: "/(technician)/(tabs)" }
           );
         }
       } else {
         // Broadcast to ALL approved available technicians
         const technicians = await prisma.user.findMany({
-          where: { role: "technician", isApproved: true, expoPushToken: { not: null } },
+          where: {
+            role: "technician",
+            isApproved: true,
+            isAvailable: true,
+            expoPushToken: { not: null },
+          },
           select: { expoPushToken: true },
         });
         const tokens = technicians.map((t) => t.expoPushToken).filter(Boolean) as string[];
@@ -145,8 +158,8 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
           await sendPushNotificationToMany(
             tokens,
             "🔔 הזמנה חדשה!",
-            `${customerName} צריך עזרה עם ${bikeLabel} - לחץ לקבל`,
-            { jobId: job.id, screen: "/(technician)/(tabs)" }
+            `${customerName} צריך עזרה עם ${bikeLabel} · ${formatJobReference(job.jobNumber)}`,
+            { jobId: job.id, jobNumber: job.jobNumber, screen: "/(technician)/(tabs)" }
           );
         }
       }
@@ -154,9 +167,47 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
       console.error("[Push] Error sending job notification:", pushErr);
     }
 
-    return c.json({ job }, 201);
+    return c.json({ job: withJobReference(job) }, 201);
   } catch (error) {
     console.error("Error creating job:", error);
+    return c.json({ message: "Internal server error" }, 500);
+  }
+});
+
+// Get a single job by serial number (EB-001006)
+jobsRouter.get("/by-number/:jobNumber", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.body(null, 401);
+
+  const jobNumber = Number(c.req.param("jobNumber"));
+  if (!Number.isFinite(jobNumber) || jobNumber <= 0) {
+    return c.json({ message: "Invalid job number" }, 400);
+  }
+
+  try {
+    const job = await prisma.job.findFirst({
+      where: {
+        jobNumber,
+        OR: [{ customerId: user.id }, { technicianId: user.id }],
+      },
+      include: {
+        customer: {
+          select: { id: true, name: true, email: true, image: true, phone: true },
+        },
+        technician: {
+          select: {
+            id: true, name: true, email: true, image: true, phone: true,
+            rating: true, totalReviews: true, vehicleType: true, basePrice: true,
+            currentLocationLat: true, currentLocationLng: true,
+          },
+        },
+      },
+    });
+
+    if (!job) return c.json({ message: "Job not found" }, 404);
+    return c.json({ job: withJobReference(job) });
+  } catch (error) {
+    console.error("Error fetching job by number:", error);
     return c.json({ message: "Internal server error" }, 500);
   }
 });
@@ -190,7 +241,7 @@ jobsRouter.get("/:id", async (c) => {
 
     if (!job) return c.json({ message: "Job not found" }, 404);
 
-    return c.json({ job });
+    return c.json({ job: withJobReference(job) });
   } catch (error) {
     console.error("Error fetching job:", error);
     return c.json({ message: "Internal server error" }, 500);
@@ -216,7 +267,7 @@ jobsRouter.get("/", async (c) => {
     const jobs = await prisma.job.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      take: 50,
+      take: 100,
       include: {
         customer: {
           select: { id: true, name: true, email: true, image: true, phone: true },
@@ -231,7 +282,23 @@ jobsRouter.get("/", async (c) => {
       },
     });
 
-    return c.json({ jobs });
+    const sanitized =
+      user.role === "technician"
+        ? jobs.map((job) =>
+            job.status === "pending" && job.customer
+              ? {
+                  ...job,
+                  customer: {
+                    id: job.customer.id,
+                    name: job.customer.name,
+                    image: job.customer.image,
+                  },
+                }
+              : job
+          )
+        : jobs;
+
+    return c.json({ jobs: withJobReferences(sanitized) });
   } catch (error) {
     console.error("Error listing jobs:", error);
     return c.json({ message: "Internal server error" }, 500);
@@ -268,7 +335,7 @@ jobsRouter.get("/customer/active", async (c) => {
       },
     });
 
-    return c.json({ job: job || null });
+    return c.json({ job: job ? withJobReference(job) : null });
   } catch (error) {
     console.error("Error fetching customer active job:", error);
     return c.json({ message: "Internal server error" }, 500);
@@ -361,6 +428,16 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
     const updateData: any = { status };
 
     if (status === "accepted") {
+      if (user.role === "technician") {
+        const techUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { isApproved: true },
+        });
+        if (!techUser?.isApproved) {
+          return c.json({ message: "החשבון שלך עדיין לא אושר על ידי המערכת" }, 403);
+        }
+      }
+
       updateData.acceptedAt = new Date();
       // Store technician location at time of acceptance
       const tech = await prisma.user.findUnique({
@@ -430,6 +507,18 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
       }
     }
 
+    // Payment gate for all forward progress (arrived / in_progress / completed).
+    // on_way has its own atomic gate below; cancelled is always allowed.
+    if (status !== "cancelled" && status !== "on_way" && status !== "accepted") {
+      const payGate = canProgressWithPayment(
+        { id: job.id, status: job.status, paymentStatus: job.paymentStatus },
+        status
+      );
+      if (!payGate.ok) {
+        return c.json({ message: payGate.error }, 402);
+      }
+    }
+
     if (status === "on_way") {
       // Slice 1: Pre-check using the pure helper (clear error) + atomic claim below.
       const gate = canTransitionToOnWay({
@@ -486,8 +575,31 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
     }
 
     if (status === "completed") {
-      updateData.completedAt = new Date();
-      if (finalPrice !== undefined) updateData.finalPrice = finalPrice;
+      const completeGate = canCompleteJob({
+        id: job.id,
+        status: job.status,
+        paymentStatus: job.paymentStatus,
+      });
+      if (!completeGate.ok) {
+        return c.json({ message: completeGate.error }, 402);
+      }
+
+      const completeData: { status: string; completedAt: Date; finalPrice?: number } = {
+        status: "completed",
+        completedAt: new Date(),
+      };
+      if (finalPrice !== undefined) completeData.finalPrice = finalPrice;
+
+      // Atomic claim: only in_progress + paid can become completed (prevents skip/unpaid complete)
+      const completeClaim = await prisma.job.updateMany({
+        where: { id, status: "in_progress", paymentStatus: "paid" },
+        data: completeData,
+      });
+      if (completeClaim.count === 0) {
+        return c.json({
+          message: "לא ניתן לסיים את העבודה — יש לוודא שהלקוח שילם ושהתיקון בתהליך",
+        }, 409);
+      }
 
       if (job.technicianId) {
         const price = finalPrice !== undefined ? finalPrice : (job.estimatedPriceMin ?? 0);
@@ -498,10 +610,6 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
         const secondaryTechId = jobWithSecondary?.secondaryTechnicianId;
 
         if (secondaryTechId) {
-          // Split earnings: 50/50, call-out fee deducted from primary's share.
-          // B07 FIX: clamp callOutFee so primaryEarning can never go negative.
-          // Without this, a secondary tech with a huge callOutFee + small job
-          // produces negative earnings for the primary and overpays secondary.
           const secondaryTech = await prisma.user.findUnique({
             where: { id: secondaryTechId },
             select: { callOutFee: true },
@@ -528,7 +636,6 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
             }),
           ]);
         } else {
-          // Single technician - full earnings
           await prisma.$transaction([
             prisma.transaction.create({
               data: { technicianId: job.technicianId, jobId: job.id, type: "earning", amount: price, status: "completed" },
@@ -540,6 +647,21 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
           ]);
         }
       }
+
+      const completedJob = await prisma.job.findUnique({
+        where: { id },
+        include: {
+          customer: { select: { id: true, name: true, email: true, image: true, phone: true } },
+          technician: {
+            select: {
+              id: true, name: true, email: true, image: true, phone: true,
+              rating: true, totalReviews: true, vehicleType: true, basePrice: true,
+              currentLocationLat: true, currentLocationLng: true,
+            },
+          },
+        },
+      });
+      return c.json({ job: completedJob });
     }
 
     // Block customer from cancelling after payment has been made

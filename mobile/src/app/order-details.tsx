@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, Pressable, ScrollView, I18nManager } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Pressable, ScrollView, I18nManager, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeInUp } from 'react-native-reanimated';
@@ -9,17 +9,45 @@ import { format } from 'date-fns';
 import { he } from 'date-fns/locale';
 import * as Haptics from 'expo-haptics';
 
-import { useLanguageStore, useOrdersStore } from '@/lib/store';
-import { REPAIR_CATEGORIES } from '@/lib/types';
+import { useLanguageStore } from '@/lib/store';
+import { Job, REPAIR_CATEGORIES } from '@/lib/types';
+import { formatJobReference } from '@/lib/job-reference';
+import { fetchJobById } from '@/lib/active-job-sync';
 
 export default function OrderDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
-  const orders = useOrdersStore((s) => s.orders);
 
-  const order = orders.find((o) => o.id === id);
+  const [order, setOrder] = useState<Job | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    if (!id) {
+      setNotFound(true);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const job = await fetchJobById(id);
+      if (cancelled) return;
+      if (!job) {
+        setNotFound(true);
+        setOrder(null);
+      } else {
+        setOrder(job);
+        setNotFound(false);
+      }
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const BackIcon = I18nManager.isRTL ? ChevronRight : ChevronLeft;
 
@@ -29,7 +57,15 @@ export default function OrderDetailsScreen() {
     return t(found.labelKey as Parameters<typeof t>[0]);
   };
 
-  if (!order) {
+  if (loading) {
+    return (
+      <SafeAreaView className="flex-1 bg-gray-50 items-center justify-center" edges={['top']}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </SafeAreaView>
+    );
+  }
+
+  if (notFound || !order) {
     return (
       <SafeAreaView className="flex-1 bg-gray-50 items-center justify-center" edges={['top']}>
         <Text className="text-gray-500 text-lg">{language === 'he' ? 'ההזמנה לא נמצאה' : 'Order not found'}</Text>
@@ -74,9 +110,11 @@ export default function OrderDetailsScreen() {
                 : (language === 'he' ? 'הזמנה בוטלה' : 'Order Cancelled')
               }
             </Text>
-            {order.job_number && (
+            {!!formatJobReference(order.job_number) && (
               <View className="bg-blue-100 rounded-full px-3 py-1 mt-2">
-                <Text className="text-blue-600 text-xs font-bold">#{order.job_number}</Text>
+                <Text className="text-blue-600 text-xs font-bold">
+                  {formatJobReference(order.job_number)}
+                </Text>
               </View>
             )}
             {order.completed_at && (
@@ -100,7 +138,7 @@ export default function OrderDetailsScreen() {
               <Text className="text-3xl font-bold text-gray-900">₪{displayPrice}</Text>
               {order.payment_status === 'paid' && (
                 <Text className="text-gray-400 text-sm mt-1">
-                  {language === 'he' ? 'שולם בכרטיס אשראי' : 'Paid by credit card'}
+                  {language === 'he' ? 'שולם' : 'Paid'}
                 </Text>
               )}
             </View>
@@ -161,6 +199,9 @@ export default function OrderDetailsScreen() {
                     {getCategoryLabel(cat)}
                   </Text>
                 ))}
+                {!order.categories?.length && !!order.description && (
+                  <Text className="text-gray-700 font-medium">{order.description}</Text>
+                )}
               </View>
             </View>
 
@@ -174,7 +215,7 @@ export default function OrderDetailsScreen() {
         </Animated.View>
 
         {/* Photo */}
-        {order.photo_url && (
+        {order.photo_url ? (
           <Animated.View entering={FadeInUp.delay(200).duration(400)}>
             <View className="bg-white rounded-2xl p-5 shadow-sm shadow-black/5">
               <Text className="text-gray-500 text-sm mb-3">{language === 'he' ? 'תמונת התקלה' : 'Issue Photo'}</Text>
@@ -185,7 +226,7 @@ export default function OrderDetailsScreen() {
               />
             </View>
           </Animated.View>
-        )}
+        ) : null}
 
         {/* Timeline */}
         <Animated.View entering={FadeInUp.delay(240).duration(400)}>
@@ -229,16 +270,14 @@ export default function OrderDetailsScreen() {
         </Animated.View>
 
         {/* Address */}
-        {order.customer_location && (
+        {order.customer_location?.address && (
           <Animated.View entering={FadeInUp.delay(280).duration(400)}>
             <View className="bg-white rounded-2xl p-5 shadow-sm shadow-black/5">
               <View className="flex-row items-center">
                 <MapPin size={18} color="#6B7280" />
                 <Text className="text-gray-500 text-sm mx-2">{language === 'he' ? 'כתובת תיקון' : 'Repair Address'}</Text>
               </View>
-              {order.customer_location.address && (
-                <Text className="text-gray-700 font-medium mt-2">{order.customer_location.address}</Text>
-              )}
+              <Text className="text-gray-700 font-medium mt-2">{order.customer_location.address}</Text>
             </View>
           </Animated.View>
         )}

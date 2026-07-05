@@ -11,9 +11,11 @@ import { uploadsRouter } from "./routes/uploads";
 import { paymentsRouter } from "./routes/payments";
 import { messagesRouter } from "./routes/messages";
 import { streetsRouter } from "./routes/streets";
+import { geocodeRouter } from "./routes/geocode";
 import { logger } from "hono/logger";
 import { auth } from "./auth";
 import { ensureJobPhotosBucket, isSupabaseStorageConfigured } from "./lib/supabase-storage";
+import { getActivePaymentProvider } from "./lib/mock-payments";
 
 // Type the Hono app with user/session variables
 type HonoEnv = {
@@ -129,16 +131,19 @@ const emailSignupDisabled = ["1", "true", "yes"].includes(
 );
 
 // Health check endpoint (version helps verify Render deployed latest code)
-const BUILD_VERSION = "2026-07-06-email-signup-v2";
+const BUILD_VERSION = "2026-07-06-tranzila-v1";
 app.get("/health", (c) => {
-  const mockFlag = ["1", "true", "yes"].includes((process.env.MOCK_PAYMENTS ?? "").trim().toLowerCase());
+  const tranzilaConfigured = !!(process.env.TRANZILA_TERMINAL ?? "").trim();
   const growConfigured = !!(process.env.GROW_USER_ID?.trim() && process.env.GROW_PAGE_CODE?.trim());
-  const mockPayments = mockFlag || !growConfigured;
+  const provider = getActivePaymentProvider();
   return c.json({
     status: "ok",
     version: BUILD_VERSION,
     emailSignUpEnabled: !emailSignupDisabled,
-    mockPayments,
+    mockPayments: provider === "mock",
+    paymentProvider: provider,
+    tranzilaConfigured,
+    growConfigured,
   });
 });
 
@@ -1025,6 +1030,7 @@ app.route("/api/reviews", reviewsRouter);
 app.route("/api/payments", paymentsRouter);
 app.route("/api/jobs", messagesRouter);
 app.route("/api/streets", streetsRouter);
+app.route("/api/geocode", geocodeRouter);
 
 // Delete own account - permanent, deletes all user data
 app.delete("/api/users/me", async (c) => {
@@ -1132,11 +1138,21 @@ app.patch("/api/users/push-token", async (c) => {
 
   try {
     const { token } = await c.req.json();
-    if (!token || typeof token !== "string") {
+    const { prisma } = await import("./prisma");
+
+    if (token == null || token === "") {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { expoPushToken: null },
+      });
+      console.log(`[Push] Cleared push token for user ${user.id}`);
+      return c.json({ success: true, cleared: true });
+    }
+
+    if (typeof token !== "string") {
       return c.json({ message: "Invalid token" }, 400);
     }
 
-    const { prisma } = await import("./prisma");
     await prisma.user.update({
       where: { id: user.id },
       data: { expoPushToken: token },

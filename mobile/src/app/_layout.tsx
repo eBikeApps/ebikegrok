@@ -9,8 +9,11 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { I18nManager } from 'react-native';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { applyRtlForLanguage, readStoredLanguage } from '@/lib/rtl';
 import { useSession } from '@/lib/auth/use-session';
+import { clearCustomerActiveJobState } from '@/lib/active-job-sync';
+import { handlePushNotificationNavigation } from '@/lib/push-navigation';
 import * as Notifications from 'expo-notifications';
 import { preloadSystemSounds, playSystemSound } from '@/lib/system-sounds';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -18,11 +21,8 @@ import { LoadingScreen } from '@/components/LoadingScreen';
 
 import '../../global.css';
 
-// Force RTL for Hebrew
-if (!I18nManager.isRTL) {
-  I18nManager.allowRTL(true);
-  I18nManager.forceRTL(true);
-}
+// Default RTL for Hebrew until persisted language is loaded
+applyRtlForLanguage('he');
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -37,25 +37,36 @@ AppState.addEventListener('change', (state) => {
 function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null | undefined }) {
   const { data: session, isLoading } = useSession();
   const router = useRouter();
+  const [rtlReady, setRtlReady] = useState(false);
 
   useEffect(() => {
+    readStoredLanguage()
+      .then((lang) => {
+        applyRtlForLanguage(lang);
+      })
+      .finally(() => setRtlReady(true));
+  }, []);
+
+  useEffect(() => {
+    if (!rtlReady) return;
     // Hide splash screen after layout is ready
     SplashScreen.hideAsync();
     // Pre-warm system sound players so the first play has no latency
     preloadSystemSounds();
-  }, []);
+  }, [rtlReady]);
 
   // Play sound on incoming notifications + listen for notification taps
   useEffect(() => {
     const receivedSub = Notifications.addNotificationReceivedListener(() => {
       playSystemSound('notification');
     });
-    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as { jobId?: string; screen?: string };
-      if (data?.screen === 'job-tracking' && data?.jobId) {
-        // Slice 3: standardize to 'id' so job-tracking polling/hydrate works reliably (post-pay, restart, notif deep links)
-        router.push({ pathname: '/job-tracking', params: { id: data.jobId } });
-      }
+    const responseSub = Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const data = response.notification.request.content.data as {
+        jobId?: string;
+        screen?: string;
+        invitationId?: string;
+      };
+      await handlePushNotificationNavigation(router, data);
     });
     return () => {
       receivedSub.remove();
@@ -63,14 +74,22 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
     };
   }, [router]);
 
+  // Drop stale in-memory active job on cold start / re-login (store is not persisted)
+  useEffect(() => {
+    if (session?.user) {
+      clearCustomerActiveJobState();
+    }
+  }, [session?.user?.id]);
+
   // Show loading screen while session loads (replaces black screen on production launch)
-  if (isLoading) return <LoadingScreen />;
+  if (!rtlReady || isLoading) return <LoadingScreen />;
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="role-select" />
+        <Stack.Screen name="technician-pending" options={{ gestureEnabled: false }} />
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="sign-up" />
         <Stack.Screen name="(customer)" />
@@ -111,6 +130,14 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         />
         <Stack.Screen
           name="order-details"
+          options={{ presentation: 'card', gestureEnabled: true }}
+        />
+        <Stack.Screen
+          name="reviews"
+          options={{ presentation: 'card', gestureEnabled: true }}
+        />
+        <Stack.Screen
+          name="submit-review"
           options={{ presentation: 'card', gestureEnabled: true }}
         />
       </Stack>

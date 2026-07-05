@@ -47,7 +47,8 @@ import { Image } from 'expo-image';
 import { useLanguageStore, useTechnicianStore } from '@/lib/store';
 import { authClient } from '@/lib/auth/auth-client';
 import { Job, JobStatus, JobPart } from '@/lib/types';
-import { dialPhoneNumber } from '@/lib/phone';
+import { dialPhoneNumber, openWhatsAppChat } from '@/lib/phone';
+import { formatJobReference } from '@/lib/job-reference';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,15 +59,18 @@ const statusSteps: { key: JobStatus; labelHe: string; icon: string }[] = [
   { key: 'completed',   labelHe: 'הושלם',             icon: '✅' },
 ];
 
+const CONTACT_VISIBLE_STATUSES: JobStatus[] = ['on_way', 'arrived', 'in_progress', 'completed'];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const mapApiJob = (j: any): Job => ({
   id: j.id,
   job_number: j.jobNumber,
+  job_reference: j.jobReference,
   customer_id: j.customerId,
   technician_id: j.technicianId,
   status: j.status,
-  photo_url: j.photoUrl,
+  photo_url: j.photoUrl ?? '',
   description: j.description,
   bike_type: j.bikeType,
   categories: j.category?.split(', ').filter(Boolean) ?? [],
@@ -455,10 +459,7 @@ export default function TechnicianActiveJobScreen() {
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey: ['job', params.id] });
       const previousJob = queryClient.getQueryData<Job>(['job', params.id]);
-      if (previousJob) {
-        queryClient.setQueryData<Job>(['job', params.id], { ...previousJob, status: payload.status });
-        updateActiveJob(params.id, { status: payload.status });
-      }
+      // No optimistic status advance — prevents UI racing ahead of server (e.g. unpaid → complete after app restart)
       return { previousJob };
     },
     onSuccess: (updated) => {
@@ -471,7 +472,7 @@ export default function TechnicianActiveJobScreen() {
         queryClient.setQueryData(['job', params.id], context.previousJob);
         updateActiveJob(params.id, { status: context.previousJob.status });
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setInfoModal({ visible: true, title: 'שגיאה', message: err.message });
       queryClient.invalidateQueries({ queryKey: ['job', params.id] });
     },
@@ -506,10 +507,13 @@ export default function TechnicianActiveJobScreen() {
       setInfoModal({ visible: true, title: 'שגיאה', message: `לא ניתן לעבור מ-${job.status} ל-${nextStatus}` });
       return;
     }
-    // Slice 2: Extra client guard for the user spec (pay after accept before drive).
-    // Even if button is hidden, direct calls or stale UI are blocked. Backend is final authority.
-    if (nextStatus === 'on_way' && job.payment_status !== 'paid') {
-      setInfoModal({ visible: true, title: 'ממתין לתשלום', message: 'הלקוח עדיין לא שילם. לא ניתן לצאת לדרך לפני אישור התשלום.' });
+    const forwardStatuses: JobStatus[] = ['on_way', 'arrived', 'in_progress', 'completed'];
+    if (forwardStatuses.includes(nextStatus) && job.payment_status !== 'paid') {
+      setInfoModal({
+        visible: true,
+        title: 'ממתין לתשלום',
+        message: 'הלקוח עדיין לא שילם. לא ניתן להמשיך לפני אישור התשלום.',
+      });
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -528,27 +532,49 @@ export default function TechnicianActiveJobScreen() {
     statusMutation.mutate({ status: 'cancelled' });
   };
 
+  const contactErrorMessages = (isHe: boolean) => ({
+    no_phone: {
+      title: isHe ? 'אין מספר טלפון' : 'No phone number',
+      message: isHe ? 'אין מספר טלפון זמין עבור הלקוח' : 'No phone number available for this customer',
+    },
+    invalid: {
+      title: isHe ? 'מספר לא תקין' : 'Invalid number',
+      message: isHe ? 'מספר הטלפון אינו תקין' : 'The phone number is invalid',
+    },
+    failed: {
+      title: isHe ? 'שגיאה' : 'Error',
+      message: isHe ? 'לא ניתן לבצע את הפעולה. נסה שוב.' : 'Unable to complete the action. Try again.',
+    },
+  });
+
   const handleCallCustomer = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const result = await dialPhoneNumber(job?.customer?.phone);
     if (result === 'ok') return;
-    const isHe = language === 'he';
-    const messages = {
-      no_phone: {
-        title: isHe ? 'אין מספר טלפון' : 'No phone number',
-        message: isHe ? 'אין מספר טלפון זמין עבור הלקוח' : 'No phone number available for this customer',
-      },
-      invalid: {
-        title: isHe ? 'מספר לא תקין' : 'Invalid number',
-        message: isHe ? 'מספר הטלפון אינו תקין' : 'The phone number is invalid',
-      },
-      failed: {
-        title: isHe ? 'שגיאה' : 'Error',
-        message: isHe ? 'לא ניתן לבצע את השיחה. נסה שוב או שלח הודעה.' : 'Unable to start the call. Try again or send a message.',
-      },
-    };
-    const copy = messages[result];
+    const copy = contactErrorMessages(language === 'he')[result];
     setInfoModal({ visible: true, title: copy.title, message: copy.message });
+  };
+
+  const handleWhatsAppCustomer = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const jobRef = formatJobReference(job?.job_number) || `#${job?.id.slice(-4)}`;
+    const isHe = language === 'he';
+    const message = isHe
+      ? `שלום ${job?.customer?.name ?? ''}, אני הטכנאי שלך מהזמנה ${jobRef}.`
+      : `Hi ${job?.customer?.name ?? ''}, I'm your technician for order ${jobRef}.`;
+    const result = await openWhatsAppChat(job?.customer?.phone, message);
+    if (result === 'ok') return;
+    const copy = contactErrorMessages(isHe)[result];
+    setInfoModal({ visible: true, title: copy.title, message: copy.message });
+  };
+
+  const handleInviteTechnician = () => {
+    if (!job || !['accepted', 'on_way', 'arrived', 'in_progress'].includes(job.status)) return;
+    Haptics.selectionAsync();
+    router.push({
+      pathname: '/(technician)/invite-technician',
+      params: { jobId: job.id },
+    });
   };
 
   const handleIssueNotFixed = () => {
@@ -585,6 +611,24 @@ export default function TechnicianActiveJobScreen() {
 
   const handleComplete = (args: { finalPrice: number; parts: JobPart[]; notes: string }) => {
     if (!job) return;
+    if (job.payment_status !== 'paid') {
+      setShowCompleteForm(false);
+      setInfoModal({
+        visible: true,
+        title: 'ממתין לתשלום',
+        message: 'לא ניתן לסיים עבודה לפני שהלקוח שילם.',
+      });
+      return;
+    }
+    if (job.status !== 'in_progress') {
+      setShowCompleteForm(false);
+      setInfoModal({
+        visible: true,
+        title: 'שגיאה',
+        message: 'ניתן לסמן הושלם רק כשהתיקון בתהליך.',
+      });
+      return;
+    }
     statusMutation.mutate(
       { status: 'completed', ...args },
       {
@@ -648,6 +692,8 @@ export default function TechnicianActiveJobScreen() {
   const currentIdx = getCurrentStepIndex();
   const nextStep = statusSteps[currentIdx + 1] ?? null;
   const isCompleted = job.status === 'completed';
+  const canContactCustomer =
+    job.payment_status === 'paid' && CONTACT_VISIBLE_STATUSES.includes(job.status);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
@@ -703,7 +749,7 @@ export default function TechnicianActiveJobScreen() {
             </View>
             <View style={[styles.jobIdBadge, { backgroundColor: isCompleted ? '#DCFCE7' : '#EFF6FF' }]}>
               <Text style={[styles.jobIdText, { color: isCompleted ? '#16A34A' : '#3B82F6' }]}>
-                #{job.id.slice(-4)}
+                {formatJobReference(job.job_number) || `#${job.id.slice(-4)}`}
               </Text>
             </View>
           </LinearGradient>
@@ -733,9 +779,11 @@ export default function TechnicianActiveJobScreen() {
           <View style={styles.customerInfo}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={styles.customerName}>{job.customer?.name ?? 'לקוח'}</Text>
-              {job.job_number && (
+              {!!formatJobReference(job.job_number) && (
                 <View style={{ backgroundColor: 'rgba(59,130,246,0.15)', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 }}>
-                  <Text style={{ color: '#60A5FA', fontSize: 11, fontWeight: '700' }}>#{job.job_number}</Text>
+                  <Text style={{ color: '#60A5FA', fontSize: 11, fontWeight: '700' }}>
+                    {formatJobReference(job.job_number)}
+                  </Text>
                 </View>
               )}
             </View>
@@ -747,31 +795,28 @@ export default function TechnicianActiveJobScreen() {
             </View>
           </View>
 
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Pressable
-              onPress={() => router.push({
-                pathname: '/chat',
-                params: {
-                  jobId: job.id,
-                  otherName: job.customer?.name ?? 'לקוח',
-                  otherAvatar: job.customer?.avatar_url ?? '',
-                },
-              })}
-              style={styles.contactBtn}
-            >
-              <LinearGradient colors={['#25D366', '#1DAA54']} style={styles.contactBtnInner}>
-                <MessageCircle size={18} color="#fff" />
-              </LinearGradient>
-            </Pressable>
-            <Pressable
-              onPress={handleCallCustomer}
-              style={styles.contactBtn}
-            >
-              <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.contactBtnInner}>
-                <Phone size={18} color="#fff" />
-              </LinearGradient>
-            </Pressable>
-          </View>
+          {canContactCustomer && (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable
+                onPress={handleWhatsAppCustomer}
+                accessibilityLabel="WhatsApp ללקוח"
+                style={({ pressed }) => [styles.contactBtn, pressed && { opacity: 0.85 }]}
+              >
+                <LinearGradient colors={['#25D366', '#1DAA54']} style={styles.contactBtnInner}>
+                  <MessageCircle size={18} color="#fff" />
+                </LinearGradient>
+              </Pressable>
+              <Pressable
+                onPress={handleCallCustomer}
+                accessibilityLabel="התקשר ללקוח"
+                style={({ pressed }) => [styles.contactBtn, pressed && { opacity: 0.85 }]}
+              >
+                <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.contactBtnInner}>
+                  <Phone size={18} color="#fff" />
+                </LinearGradient>
+              </Pressable>
+            </View>
+          )}
         </View>
 
         {/* Divider */}
@@ -860,7 +905,7 @@ export default function TechnicianActiveJobScreen() {
                     </View>
 
                     {/* "Update" button on the NEXT step */}
-                    {isStepNext && !isCompleted && (
+                    {isStepNext && !isCompleted && job.payment_status === 'paid' && (
                       <Pressable
                         onPress={() => handleStatusUpdate(step.key)}
                         disabled={statusMutation.isPending}
@@ -887,9 +932,19 @@ export default function TechnicianActiveJobScreen() {
                     )}
 
                     {/* "Complete" CTA on in_progress */}
-                    {isStepCurrent && step.key === 'in_progress' && !isCompleted && (
+                    {isStepCurrent && step.key === 'in_progress' && !isCompleted && job.payment_status === 'paid' && (
                       <Pressable
-                        onPress={() => setShowCompleteForm(true)}
+                        onPress={() => {
+                          if (job.payment_status !== 'paid') {
+                            setInfoModal({
+                              visible: true,
+                              title: 'ממתין לתשלום',
+                              message: 'לא ניתן לסיים עבודה לפני שהלקוח שילם.',
+                            });
+                            return;
+                          }
+                          setShowCompleteForm(true);
+                        }}
                         style={({ pressed }) => [{ marginTop: 10, opacity: pressed ? 0.88 : 1 }]}
                       >
                         <LinearGradient
@@ -970,6 +1025,31 @@ export default function TechnicianActiveJobScreen() {
 
           {!isCompleted && (
             <View style={{ marginTop: 24, gap: 10 }}>
+              {job?.payment_status === 'paid' &&
+                ['accepted', 'on_way', 'arrived', 'in_progress'].includes(job?.status ?? '') && (
+                <Pressable
+                  onPress={handleInviteTechnician}
+                  style={({ pressed }) => [{
+                    opacity: pressed ? 0.85 : 1,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: 'rgba(16,185,129,0.35)',
+                    backgroundColor: 'rgba(16,185,129,0.08)',
+                    paddingVertical: 14,
+                    paddingHorizontal: 20,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }]}
+                >
+                  <Text style={{ fontSize: 16 }}>🤝</Text>
+                  <Text style={{ color: '#10B981', fontSize: 15, fontWeight: '700' }}>
+                    הזמן טכנאי נוסף
+                  </Text>
+                </Pressable>
+              )}
+
               {job?.payment_status === 'paid' && ['in_progress', 'arrived'].includes(job?.status ?? '') && (
                 <Pressable
                   onPress={handleIssueNotFixed}

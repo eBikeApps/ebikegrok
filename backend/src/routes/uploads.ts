@@ -3,6 +3,10 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { join, basename, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import {
+  isSupabaseStorageConfigured,
+  uploadJobPhotoToSupabase,
+} from "../lib/supabase-storage";
 
 type HonoEnv = {
   Variables: {
@@ -82,6 +86,19 @@ uploadsRouter.post("/", async (c) => {
       return c.json({ error: "Unrecognized image format" }, 400);
     }
 
+    // Prefer Supabase Storage — persistent public URL (works for technician on any device)
+    if (isSupabaseStorageConfigured()) {
+      const supabaseUrl = await uploadJobPhotoToSupabase({
+        buffer,
+        mimeType: detected,
+        userId: user.id,
+      });
+      if (supabaseUrl) {
+        return c.json({ url: supabaseUrl, storage: "supabase" });
+      }
+      console.warn("[Uploads] Supabase upload failed, falling back to local disk");
+    }
+
     await ensureUploadsDir();
 
     const ext = SAFE_MIMES[detected];
@@ -90,10 +107,16 @@ uploadsRouter.post("/", async (c) => {
 
     await writeFile(filepath, buffer);
 
-    const backendUrl = process.env.BACKEND_URL || "";
+    const host = c.req.header("host");
+    const proto = c.req.header("x-forwarded-proto") ?? "http";
+    const configured = (process.env.BACKEND_URL ?? "").replace(/\/$/, "");
+    const backendUrl =
+      host && (host.includes("localhost") || host.includes("127.0.0.1") || /:\d+$/.test(host))
+        ? `${proto}://${host}`
+        : configured || (host ? `${proto}://${host}` : "");
     const url = `${backendUrl}/api/uploads/${filename}`;
 
-    return c.json({ url });
+    return c.json({ url, storage: "local" });
   } catch (error) {
     console.error("Upload error:", error);
     return c.json({ error: "Upload failed" }, 500);

@@ -3,16 +3,19 @@ import { authClient } from "../auth/auth-client";
 
 const baseUrl = process.env.EXPO_PUBLIC_BACKEND_URL!;
 
-// IMPORTANT: This sets the cookies/auth token in the headers
+// IMPORTANT: sends session cookie + Bearer token (Expo email auth uses token)
 const request = async <T>(
   url: string,
   options: { method?: string; body?: string } = {}
 ): Promise<T> => {
+  const sessionResult = await authClient.getSession();
+  const token = sessionResult.data?.session?.token;
   const response = await fetch(`${baseUrl}${url}`, {
     ...options,
     credentials: "include",
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       Cookie: authClient.getCookie(),
     },
   });

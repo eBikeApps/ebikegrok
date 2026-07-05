@@ -27,11 +27,15 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import * as Updates from 'expo-updates';
 import { useLanguageStore } from '@/lib/store';
+import { applyRtlForLanguage } from '@/lib/rtl';
+import { getNotificationsPreference, setNotificationsPreference } from '@/lib/push-notifications';
 import { cn } from '@/lib/cn';
 import { useSession, useSignOut, SESSION_QUERY_KEY } from '@/lib/auth/use-session';
 import { authClient } from '@/lib/auth/auth-client';
 import { api } from '@/lib/api/api';
+import Constants from 'expo-constants';
 
 interface SettingItem {
   icon: typeof Bell;
@@ -54,6 +58,7 @@ export default function ProfileScreen() {
 
   const queryClient = useQueryClient();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [avatarUri, setAvatarUri] = useState<string | undefined>(user?.image ?? undefined);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -65,6 +70,12 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (user?.image) setAvatarUri(user.image);
   }, [user?.image]);
+
+  useEffect(() => {
+    getNotificationsPreference()
+      .then(setNotificationsEnabled)
+      .finally(() => setNotificationsLoading(false));
+  }, []);
 
   const uploadAvatarMutation = useMutation({
     mutationFn: async (dataUrl: string) => {
@@ -124,9 +135,25 @@ export default function ProfileScreen() {
 
   const uploadingAvatar = uploadAvatarMutation.isPending;
 
-  const handleLanguageToggle = () => {
+  const handleLanguageToggle = async () => {
     Haptics.selectionAsync();
-    setLanguage(language === 'he' ? 'en' : 'he');
+    const next = language === 'he' ? 'en' : 'he';
+    setLanguage(next);
+    const needsReload = applyRtlForLanguage(next);
+    if (needsReload) {
+      try {
+        await Updates.reloadAsync();
+      } catch {
+        setInfoModalContent({
+          title: next === 'he' ? 'הפעל מחדש' : 'Restart required',
+          message:
+            next === 'he'
+              ? 'סגור ופתח את האפליקציה כדי להחיל את כיוון הממשק.'
+              : 'Close and reopen the app to apply layout direction.',
+        });
+        setShowInfoModal(true);
+      }
+    }
   };
 
   const handleSignOut = () => {
@@ -164,9 +191,22 @@ export default function ProfileScreen() {
           label: t('notifications'),
           type: 'toggle',
           value: notificationsEnabled,
-          onToggle: (value) => {
-            setNotificationsEnabled(value);
+          onToggle: async (value) => {
             Haptics.selectionAsync();
+            setNotificationsLoading(true);
+            const ok = await setNotificationsPreference(value);
+            setNotificationsEnabled(ok);
+            setNotificationsLoading(false);
+            if (value && !ok) {
+              setInfoModalContent({
+                title: t('error'),
+                message:
+                  language === 'he'
+                    ? 'לא ניתן להפעיל התראות. אשר הרשאות בהגדרות המכשיר.'
+                    : 'Could not enable notifications. Allow permissions in device settings.',
+              });
+              setShowInfoModal(true);
+            }
           },
         },
         {
@@ -427,7 +467,7 @@ export default function ProfileScreen() {
 
         {/* Version */}
         <Text className="text-center text-gray-400 text-sm mt-6">
-          {t('appName')} v1.4.8
+          {t('appName')} v{Constants.expoConfig?.version ?? '1.7.0'}
         </Text>
       </ScrollView>
 

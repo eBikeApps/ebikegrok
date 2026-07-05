@@ -12,8 +12,13 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 
 import { useLanguageStore, useLocationStore, useActiveJobStore } from '@/lib/store';
+import {
+  clearCustomerActiveJobState,
+  fetchCustomerActiveJob,
+  isTerminalJobStatus,
+} from '@/lib/active-job-sync';
 import { calculateDistance, estimateArrivalTime } from '@/lib/mock-data';
-import { TechnicianProfile, Location as LocationType, Job } from '@/lib/types';
+import { TechnicianProfile, Location as LocationType } from '@/lib/types';
 import { useSession } from '@/lib/auth/use-session';
 import { authClient } from '@/lib/auth/auth-client';
 
@@ -115,49 +120,6 @@ function buildMapHtml(lat: number, lng: number): string {
 </html>`;
 }
 
-function mapDbJobToActive(dbJob: any): Job {
-  return {
-    id: dbJob.id,
-    customer_id: dbJob.customerId,
-    technician_id: dbJob.technicianId,
-    status: dbJob.status,
-    photo_url: dbJob.photoUrl ?? '',
-    description: dbJob.description ?? '',
-    bike_type: dbJob.bikeType,
-    categories: dbJob.categories ?? (dbJob.category ? [dbJob.category] : []),
-    estimated_price_min: dbJob.estimatedPriceMin ?? 0,
-    estimated_price_max: dbJob.estimatedPriceMax ?? 0,
-    customer_location: { latitude: dbJob.customerLocationLat, longitude: dbJob.customerLocationLng },
-    technician_location: dbJob.technician?.currentLocationLat && dbJob.technician?.currentLocationLng
-      ? { latitude: dbJob.technician.currentLocationLat, longitude: dbJob.technician.currentLocationLng }
-      : undefined,
-    created_at: dbJob.createdAt,
-    technician: dbJob.technician
-      ? {
-          id: dbJob.technician.id,
-          name: dbJob.technician.name,
-          email: dbJob.technician.email ?? '',
-          phone: dbJob.technician.phone ?? '',
-          avatar_url: dbJob.technician.image ?? '',
-          role: 'technician' as const,
-          rating: dbJob.technician.rating ?? 0,
-          total_reviews: dbJob.technician.totalReviews ?? 0,
-          verification_status: 'verified' as const,
-          vehicle_type: dbJob.technician.vehicleType ?? '',
-          service_radius: 10,
-          is_available: true,
-          base_price: dbJob.technician.basePrice ?? 0,
-          total_earnings: 0,
-          current_location: dbJob.technician.currentLocationLat && dbJob.technician.currentLocationLng
-            ? { latitude: dbJob.technician.currentLocationLat, longitude: dbJob.technician.currentLocationLng }
-            : undefined,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
-      : undefined,
-  } as Job;
-}
-
 export default function CustomerHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -182,6 +144,9 @@ export default function CustomerHomeScreen() {
   const defaultLat = 32.0853;
   const defaultLng = 34.7818;
 
+  const isInIsrael = (lat: number, lng: number) =>
+    lat >= 29.4 && lat <= 33.6 && lng >= 34.2 && lng <= 35.95;
+
   const [mapLat, setMapLat] = useState(defaultLat);
   const [mapLng, setMapLng] = useState(defaultLng);
 
@@ -192,26 +157,21 @@ export default function CustomerHomeScreen() {
     useCallback(() => {
       let cancelled = false;
       const check = async () => {
+        setActiveJobId(null);
+        clearCustomerActiveJobState();
         try {
-          const result = await authClient.getSession();
-          const token = (result as any)?.data?.session?.token;
-          if (!token) return;
-          const res = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/jobs/customer/active`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (!res.ok) return;
-          const data = await res.json();
+          const job = await fetchCustomerActiveJob();
           if (cancelled) return;
-          if (data?.job) {
-            setActiveJobId(data.job.id);
-            setActiveJobInStore(mapDbJobToActive(data.job));
-            router.replace({ pathname: '/job-tracking', params: { id: data.job.id } });
-          } else {
-            setActiveJobId(null);
-            setActiveJobInStore(null);
-          }
+          if (!job) return;
+          if (isTerminalJobStatus(job.status)) return;
+          setActiveJobId(job.id);
+          setActiveJobInStore(job);
+          router.replace({ pathname: '/job-tracking', params: { id: job.id } });
         } catch {
-          // ignore
+          if (!cancelled) {
+            setActiveJobId(null);
+            clearCustomerActiveJobState();
+          }
         }
       };
       check();
@@ -223,18 +183,23 @@ export default function CustomerHomeScreen() {
 
   useEffect(() => {
     requestLocationPermission();
-    fetchTechnicians();
   }, []);
 
   useEffect(() => {
-    if (currentLocation && allTechnicians.length > 0) {
-      const nearby = allTechnicians.filter((tech) => {
-        if (!tech.current_location || !tech.is_available) return false;
-        const distance = calculateDistance(currentLocation, tech.current_location);
-        return distance <= 10;
-      });
-      setNearbyTechnicians(nearby);
+    if (session?.user) {
+      fetchTechnicians();
     }
+  }, [currentLocation, session?.user]);
+
+  useEffect(() => {
+    if (allTechnicians.length === 0) return;
+    const loc = currentLocation ?? { latitude: defaultLat, longitude: defaultLng };
+    const nearby = allTechnicians.filter((tech) => {
+      if (!tech.current_location || !tech.is_available) return false;
+      const distance = calculateDistance(loc, tech.current_location);
+      return distance <= Math.max(tech.service_radius || 40, 40);
+    });
+    setNearbyTechnicians(nearby);
   }, [currentLocation, allTechnicians]);
 
   useEffect(() => {
@@ -265,7 +230,13 @@ export default function CustomerHomeScreen() {
       const sessionResult = await authClient.getSession();
       const token = (sessionResult as any)?.data?.session?.token;
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const response = await fetch(`${backendUrl}/api/technicians/available`, { headers });
+      const loc = currentLocation ?? { latitude: defaultLat, longitude: defaultLng };
+      const effectiveLat = __DEV__ && !isInIsrael(loc.latitude, loc.longitude) ? defaultLat : loc.latitude;
+      const effectiveLng = __DEV__ && !isInIsrael(loc.latitude, loc.longitude) ? defaultLng : loc.longitude;
+      const response = await fetch(
+        `${backendUrl}/api/technicians/available?lat=${effectiveLat}&lng=${effectiveLng}`,
+        { headers }
+      );
       if (response.ok) {
         const data = await response.json();
         const transformedTechs: TechnicianProfile[] = data.technicians.map((tech: any) => ({
@@ -304,10 +275,13 @@ export default function CustomerHomeScreen() {
       if (status === 'granted') {
         try {
           const location = await Location.getCurrentPositionAsync({});
-          const newLocation: LocationType = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          };
+          let lat = location.coords.latitude;
+          let lng = location.coords.longitude;
+          if (__DEV__ && !isInIsrael(lat, lng)) {
+            lat = defaultLat;
+            lng = defaultLng;
+          }
+          const newLocation: LocationType = { latitude: lat, longitude: lng };
           setCurrentLocation(newLocation);
           setMapLat(newLocation.latitude);
           setMapLng(newLocation.longitude);
@@ -328,10 +302,13 @@ export default function CustomerHomeScreen() {
   const refreshLocation = async () => {
     try {
       const location = await Location.getCurrentPositionAsync({});
-      const newLocation: LocationType = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      };
+      let lat = location.coords.latitude;
+      let lng = location.coords.longitude;
+      if (__DEV__ && !isInIsrael(lat, lng)) {
+        lat = defaultLat;
+        lng = defaultLng;
+      }
+      const newLocation: LocationType = { latitude: lat, longitude: lng };
       setCurrentLocation(newLocation);
       setMapLat(newLocation.latitude);
       setMapLng(newLocation.longitude);

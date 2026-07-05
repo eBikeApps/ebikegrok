@@ -32,8 +32,11 @@ export default function Index() {
     if (role === 'pending' || !role) {
       return <Redirect href="/role-select" />;
     }
-    if ((role === 'technician' && isApproved) || isAdmin) {
-      return <Redirect href="/(technician)/(tabs)" />;
+    if (role === 'technician') {
+      if (isApproved || isAdmin) {
+        return <Redirect href="/(technician)/(tabs)" />;
+      }
+      return <Redirect href="/technician-pending" />;
     }
     return <Redirect href="/(customer)/(tabs)" />;
   }

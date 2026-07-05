@@ -10,10 +10,12 @@ import { Image } from 'expo-image';
 import { format } from 'date-fns';
 import { he } from 'date-fns/locale';
 
-import { useLanguageStore } from '@/lib/store';
+import { useLanguageStore, useOrdersStore } from '@/lib/store';
 import { Job, OrderTabOption, OrderFilterOption } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { authClient } from '@/lib/auth/auth-client';
+import { formatJobReference } from '@/lib/job-reference';
+import { parseJobCategories } from '@/lib/job-categories';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
@@ -31,13 +33,14 @@ function mapDbJobToOrder(dbJob: any): Job {
   return {
     id: dbJob.id,
     job_number: dbJob.jobNumber,
+    job_reference: dbJob.jobReference,
     customer_id: dbJob.customerId,
     technician_id: dbJob.technicianId,
     status: dbJob.status,
     photo_url: dbJob.photoUrl ?? '',
     description: dbJob.description ?? '',
     bike_type: dbJob.bikeType,
-    categories: dbJob.categories ?? (dbJob.category ? [dbJob.category] : []),
+    categories: parseJobCategories(dbJob.category, dbJob.categories),
     estimated_price_min: dbJob.estimatedPriceMin ?? 0,
     estimated_price_max: dbJob.estimatedPriceMax ?? 0,
     customer_location: { latitude: dbJob.customerLocationLat, longitude: dbJob.customerLocationLng },
@@ -72,6 +75,7 @@ export default function OrdersScreen() {
   const router = useRouter();
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
+  const setOrdersStore = useOrdersStore((s) => s.setOrders);
 
   const [orders, setOrders] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -93,7 +97,9 @@ export default function OrdersScreen() {
           if (!res.ok) return;
           const data = await res.json();
           if (!cancelled && Array.isArray(data?.jobs)) {
-            setOrders(data.jobs.map(mapDbJobToOrder));
+            const mapped = data.jobs.map(mapDbJobToOrder);
+            setOrders(mapped);
+            setOrdersStore(mapped);
           }
         } catch {
           // ignore network errors silently — empty list shown
@@ -103,7 +109,7 @@ export default function OrdersScreen() {
       };
       fetchOrders();
       return () => { cancelled = true; };
-    }, [])
+    }, [setOrdersStore])
   );
 
   const tabs: { key: OrderTabOption; label: string }[] = [
@@ -320,6 +326,11 @@ export default function OrdersScreen() {
                       </View>
                     )}
                     <View className="flex-1 mx-3">
+                      {!!(order.job_reference || formatJobReference(order.job_number)) && (
+                        <Text className="text-blue-600 text-xs font-bold mb-1">
+                          {order.job_reference || formatJobReference(order.job_number)}
+                        </Text>
+                      )}
                       <Text className="text-gray-900 font-semibold text-base">
                         {order.categories?.map((cat) => getCategoryLabel(cat)).join(', ') || order.description}
                       </Text>

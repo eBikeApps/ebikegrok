@@ -3,7 +3,8 @@ import { View, ActivityIndicator } from 'react-native';
 import { Tabs, Redirect } from 'expo-router';
 import { LayoutDashboard, Briefcase, DollarSign, User, ShieldCheck } from 'lucide-react-native';
 import { useLanguageStore, useTechnicianStore } from '@/lib/store';
-import { authClient } from '@/lib/auth/auth-client';
+import { api } from '@/lib/api/api';
+import { TechnicianProfile } from '@/lib/types';
 
 const ADMIN_EMAILS = ['maortest@ebikeland.com', 'ebikelandapp@gmail.com'];
 
@@ -12,42 +13,73 @@ export default function TechnicianTabLayout() {
   const setProfile = useTechnicianStore((s) => s.setProfile);
   const [isAdmin, setIsAdmin] = React.useState(false);
   const [userRole, setUserRole] = React.useState<string | null>(null);
+  const [isApproved, setIsApproved] = React.useState<boolean | null>(null);
   const [roleChecked, setRoleChecked] = React.useState(false);
 
-  // Load technician profile on mount
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        const session = await authClient.getSession();
-        if (session?.data?.user) {
-          const user = session.data.user as any;
-          setUserRole(user.role ?? null);
-          setIsAdmin(ADMIN_EMAILS.includes(user.email));
-          if (user.role !== 'technician' && !ADMIN_EMAILS.includes(user.email)) {
-            setRoleChecked(true);
-            return;
-          }
-          setProfile({
-            id: user.id,
-            name: user.name || '',
-            email: user.email || '',
-            avatar_url: user.image || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-            phone: '',
-            role: 'technician',
-            rating: 4.8,
-            total_reviews: 0,
-            total_earnings: 0,
-            bio: '',
-            vehicle_type: 'אופניים חשמליים',
-            service_radius: 10,
-            base_price: 100,
-            is_available: false,
-            verification_status: 'verified',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
+        const me = await api.get<{
+          user: {
+            id: string;
+            name: string;
+            email: string;
+            image?: string;
+            role: string;
+            isApproved: boolean;
+            isAdmin?: boolean;
+          };
+        }>('/api/me');
+
+        const user = me.user;
+        setUserRole(user.role ?? null);
+        setIsApproved(user.isApproved);
+        setIsAdmin(!!user.isAdmin || ADMIN_EMAILS.includes(user.email));
+
+        if (user.role !== 'technician' && !ADMIN_EMAILS.includes(user.email)) {
           setRoleChecked(true);
+          return;
         }
+
+        if (!user.isApproved && !user.isAdmin && !ADMIN_EMAILS.includes(user.email)) {
+          setRoleChecked(true);
+          return;
+        }
+
+        let techData: any = null;
+        try {
+          const techRes = await api.get<{ technician: any }>(`/api/technicians/${user.id}`);
+          techData = techRes.technician;
+        } catch {
+          // partial profile ok
+        }
+
+        const profile: TechnicianProfile = {
+          id: user.id,
+          name: user.name || '',
+          email: user.email || '',
+          avatar_url: user.image || techData?.image || '',
+          phone: techData?.phone ?? '',
+          role: 'technician',
+          rating: techData?.rating ?? 0,
+          total_reviews: techData?.totalReviews ?? 0,
+          total_earnings: 0,
+          bio: techData?.bio ?? '',
+          vehicle_type: techData?.vehicleType ?? '',
+          service_radius: techData?.serviceRadius ?? 40,
+          base_price: techData?.basePrice ?? 0,
+          is_available: techData?.isAvailable ?? false,
+          verification_status: user.isApproved ? 'verified' : 'pending',
+          current_location:
+            techData?.currentLocationLat && techData?.currentLocationLng
+              ? { latitude: techData.currentLocationLat, longitude: techData.currentLocationLng }
+              : undefined,
+          created_at: techData?.createdAt ?? new Date().toISOString(),
+          updated_at: techData?.updatedAt ?? new Date().toISOString(),
+        };
+
+        setProfile(profile);
+        setRoleChecked(true);
       } catch (error) {
         console.error('Error loading technician profile:', error);
         setRoleChecked(true);
@@ -55,10 +87,8 @@ export default function TechnicianTabLayout() {
     };
 
     loadProfile();
-  }, []);
+  }, [setProfile]);
 
-  // Block render until role is confirmed — prevents dashboard from mounting
-  // with a customer token and firing 401/403 API calls before redirect completes
   if (!roleChecked) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}>
@@ -69,6 +99,10 @@ export default function TechnicianTabLayout() {
 
   if (userRole === 'customer') {
     return <Redirect href="/(customer)/(tabs)" />;
+  }
+
+  if (userRole === 'technician' && isApproved === false && !isAdmin) {
+    return <Redirect href="/technician-pending" />;
   }
 
   return (

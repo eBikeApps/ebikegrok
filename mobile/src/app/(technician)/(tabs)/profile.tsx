@@ -30,6 +30,7 @@ import { cn } from '@/lib/cn';
 import { useSession, useSignOut, SESSION_QUERY_KEY } from '@/lib/auth/use-session';
 import { authClient } from '@/lib/auth/auth-client';
 import { api } from '@/lib/api/api';
+import Constants from 'expo-constants';
 
 export default function TechnicianProfileScreen() {
   const router = useRouter();
@@ -40,6 +41,7 @@ export default function TechnicianProfileScreen() {
   const signOut = useSignOut();
   const user = session?.user;
   const profile = useTechnicianStore((s) => s.profile);
+  const setProfile = useTechnicianStore((s) => s.setProfile);
 
   // Use session user data (real user) with fallback to mock profile
   const displayName = user?.name ?? profile?.name ?? 'טכנאי';
@@ -49,7 +51,7 @@ export default function TechnicianProfileScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [avatarUri, setAvatarUri] = useState<string | undefined>(displayAvatar ?? undefined);
   const [isEditingBio, setIsEditingBio] = useState(false);
-  const [bio, setBio] = useState('');
+  const [bio, setBio] = useState(profile?.bio ?? '');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showSignOutModal, setShowSignOutModal] = useState(false);
@@ -58,6 +60,10 @@ export default function TechnicianProfileScreen() {
   useEffect(() => {
     if (displayAvatar) setAvatarUri(displayAvatar);
   }, [displayAvatar]);
+
+  useEffect(() => {
+    if (profile?.bio !== undefined) setBio(profile.bio ?? '');
+  }, [profile?.bio]);
 
   const uploadAvatarMutation = useMutation({
     mutationFn: async (dataUrl: string) => {
@@ -122,10 +128,27 @@ export default function TechnicianProfileScreen() {
     setLanguage(language === 'he' ? 'en' : 'he');
   };
 
+  const saveBioMutation = useMutation({
+    mutationFn: async (newBio: string) => {
+      const result = await api.patch<{ technician: { bio?: string } }>('/api/technicians/profile', {
+        bio: newBio.trim(),
+      });
+      return result.technician?.bio ?? newBio.trim();
+    },
+    onSuccess: (savedBio) => {
+      setBio(savedBio);
+      setIsEditingBio(false);
+      if (profile) setProfile({ ...profile, bio: savedBio });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    onError: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    },
+  });
+
   const handleSaveBio = () => {
     Haptics.selectionAsync();
-    setIsEditingBio(false);
-    // In real app, save to backend
+    saveBioMutation.mutate(bio);
   };
 
   const handleSignOut = () => {
@@ -208,15 +231,29 @@ export default function TechnicianProfileScreen() {
               {displayName}
             </Text>
 
-            <View className="flex-row items-center mt-2">
+            <Pressable
+              onPress={() => {
+                if (!user?.id) return;
+                Haptics.selectionAsync();
+                router.push({
+                  pathname: '/reviews',
+                  params: {
+                    technicianId: user.id,
+                    technicianName: displayName,
+                    rating: String(profile?.rating ?? 0),
+                  },
+                });
+              }}
+              className="flex-row items-center mt-2"
+            >
               <Star size={18} color="#F59E0B" fill="#F59E0B" />
               <Text className="ml-1 text-gray-700 font-semibold">
                 {profile?.rating ?? 0}
               </Text>
-              <Text className="text-gray-500 ml-1">
-                ({profile?.total_reviews ?? 0} {t('reviews')})
+              <Text className="text-blue-600 ml-1 font-medium">
+                ({profile?.total_reviews ?? 0} {t('reviews')} ›)
               </Text>
-            </View>
+            </Pressable>
 
             {/* Verification Badge */}
             <View className={cn('mt-3 px-4 py-1.5 rounded-full flex-row items-center', badge.bg)}>
@@ -442,7 +479,7 @@ export default function TechnicianProfileScreen() {
 
         {/* Version */}
         <Text className="text-center text-gray-400 text-sm mt-6">
-          {t('appName')} v1.0.0 (טכנאי)
+          {t('appName')} v{Constants.expoConfig?.version ?? '1.7.0'} (טכנאי)
         </Text>
       </ScrollView>
 

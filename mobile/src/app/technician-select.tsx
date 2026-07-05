@@ -10,15 +10,16 @@ import { ChevronLeft, ChevronRight, Star, Clock, MapPin, Filter, MessageCircle }
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { Platform } from 'react-native';
-import * as FileSystem from 'expo-file-system';
-
 import { useLanguageStore, useLocationStore, useRepairRequestStore, useActiveJobStore, useOrdersStore } from '@/lib/store';
 import { playSystemSound } from '@/lib/system-sounds';
 import { getAvailableTechnicians, TechnicianWithDistance } from '@/lib/api/technicians';
+import { getEffectiveCustomerLocation } from '@/lib/customer-location';
 import { TechnicianProfile, TechnicianSortOption, Job } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api/api';
 import { useSession } from '@/lib/auth/use-session';
+import { uploadJobPhoto } from '@/lib/upload-job-photo';
+import { formatJobReference } from '@/lib/job-reference';
 
 export default function TechnicianSelectScreen() {
   const router = useRouter();
@@ -30,6 +31,8 @@ export default function TechnicianSelectScreen() {
   const customerPhone = useRepairRequestStore((s) => s.customerPhone);
   const customerEmail = useRepairRequestStore((s) => s.customerEmail);
   const customerAddress = useRepairRequestStore((s) => s.customerAddress);
+  const customerLocationLat = useRepairRequestStore((s) => s.customerLocationLat);
+  const customerLocationLng = useRepairRequestStore((s) => s.customerLocationLng);
   const reset = useRepairRequestStore((s) => s.reset);
   const setActiveJob = useActiveJobStore((s) => s.setActiveJob);
   const addOrder = useOrdersStore((s) => s.addOrder);
@@ -46,6 +49,14 @@ export default function TechnicianSelectScreen() {
 
   const { data: session } = useSession();
 
+  const addressLocation =
+    customerLocationLat != null && customerLocationLng != null
+      ? { latitude: customerLocationLat, longitude: customerLocationLng }
+      : null;
+
+  const jobLocation = addressLocation ?? getEffectiveCustomerLocation(currentLocation);
+  const effectiveLocation = jobLocation;
+
   const BackIcon = I18nManager.isRTL ? ChevronRight : ChevronLeft;
 
   const sortOptions: { key: TechnicianSortOption; label: string }[] = [
@@ -59,7 +70,7 @@ export default function TechnicianSelectScreen() {
     try {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
-      const techs = await getAvailableTechnicians(currentLocation || undefined);
+      const techs = await getAvailableTechnicians(jobLocation);
       setTechnicians(techs);
     } catch (error) {
       console.error('Error loading technicians:', error);
@@ -68,13 +79,13 @@ export default function TechnicianSelectScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentLocation, t]);
+  }, [jobLocation.latitude, jobLocation.longitude, t]);
 
   useEffect(() => {
     if (session?.user) {
       fetchTechnicians();
     }
-  }, [currentLocation, session?.user]);
+  }, [jobLocation.latitude, jobLocation.longitude, session?.user]);
 
   const sortedTechnicians = useMemo(() => {
     const sorted = [...technicians];
@@ -107,31 +118,19 @@ export default function TechnicianSelectScreen() {
     setShowConfirmModal(true);
   };
 
-  const uploadPhoto = async (localUri: string): Promise<string | null> => {
-    try {
-      // Slice 4 / C06: quick size check before expensive base64 + upload (backend has 5MB cap + magic)
-      const info = await FileSystem.getInfoAsync(localUri);
-      const MAX_BYTES = 5 * 1024 * 1024;
-      if (info.exists && (info.size ?? 0) > MAX_BYTES) {
-        setInfoModal({ visible: true, title: t('error'), message: language === 'he' ? 'התמונה גדולה מדי (מקס 5MB)' : 'Photo too large (max 5MB)' , onConfirm: undefined });
-        return null;
-      }
-
-      const base64 = await FileSystem.readAsStringAsync(localUri, {
-        encoding: 'base64',
-      });
-      const ext = localUri.split('.').pop()?.toLowerCase() || 'jpg';
-      const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
-      const result = await api.post<{ url: string }>('/api/uploads', { base64, mimeType });
-      return result.url || null;
-    } catch (err) {
-      console.error('Photo upload error:', err);
-      return null;
-    }
-  };
-
   const handleConfirmBooking = async () => {
-    if (!selectedTechnician || !currentLocation) return;
+    if (!selectedTechnician || !addressLocation) {
+      setInfoModal({
+        visible: true,
+        title: t('error'),
+        message:
+          language === 'he'
+            ? 'לא נמצא מיקום לכתובת. חזור לשלב הכתובת ונסה שוב.'
+            : 'Address location missing. Go back and verify your address.',
+        onConfirm: undefined,
+      });
+      return;
+    }
     // C08 FIX: prevent double-tap from creating two jobs / two uploads
     if (bookingLoading) return;
 
@@ -146,12 +145,38 @@ export default function TechnicianSelectScreen() {
     try {
       setBookingLoading(true);
 
-      // Upload local photo to backend so technician can see it
+      const customerId = session?.user?.id;
+      if (!customerId) {
+        setInfoModal({ visible: true, title: t('error'), message: t('somethingWentWrong'), onConfirm: undefined });
+        return;
+      }
+
+      // Upload to Supabase Storage (persistent URL for technician)
       let photoUrl: string | null = null;
       if (request.photo_uri) {
-        photoUrl = await uploadPhoto(request.photo_uri);
+        try {
+          photoUrl = await uploadJobPhoto(request.photo_uri, customerId);
+        } catch (err: any) {
+          if (err?.message === 'PHOTO_TOO_LARGE') {
+            setInfoModal({
+              visible: true,
+              title: t('error'),
+              message: language === 'he' ? 'התמונה גדולה מדי (מקס 5MB)' : 'Photo too large (max 5MB)',
+              onConfirm: undefined,
+            });
+            return;
+          }
+        }
         if (!photoUrl) {
-          setInfoModal({ visible: true, title: t('error'), message: language === 'he' ? 'העלאת התמונה נכשלה. ממשיך ללא תמונה.' : 'Photo upload failed. Continuing without photo.', onConfirm: undefined });
+          setInfoModal({
+            visible: true,
+            title: t('error'),
+            message: language === 'he'
+              ? 'העלאת התמונה נכשלה. בדוק חיבור לאינטרנט ונסה שוב.'
+              : 'Photo upload failed. Check your connection and try again.',
+            onConfirm: undefined,
+          });
+          return;
         }
       }
 
@@ -168,8 +193,8 @@ export default function TechnicianSelectScreen() {
         category: request.categories.join(', '),
         estimatedPriceMin: request.estimated_price_min,
         estimatedPriceMax: request.estimated_price_max,
-        customerLocationLat: currentLocation.latitude,
-        customerLocationLng: currentLocation.longitude,
+        customerLocationLat: addressLocation.latitude,
+        customerLocationLng: addressLocation.longitude,
         customerAddress: customerAddress || undefined,
         customerName: customerName?.trim() || undefined,
         customerPhone: customerPhone?.trim() || undefined,
@@ -186,6 +211,7 @@ export default function TechnicianSelectScreen() {
       const newJob: Job = {
         id: dbJob.id,
         job_number: dbJob.jobNumber,
+        job_reference: dbJob.jobReference,
         customer_id: dbJob.customerId,
         technician_id: dbJob.technicianId,
         status: dbJob.status,
@@ -206,7 +232,22 @@ export default function TechnicianSelectScreen() {
       reset();
 
       setShowConfirmModal(false);
-      router.replace({ pathname: '/job-tracking', params: { id: newJob.id } });
+      const jobRef = formatJobReference(newJob.job_number);
+      if (jobRef) {
+        setInfoModal({
+          visible: true,
+          title: language === 'he' ? 'ההזמנה נוצרה' : 'Order created',
+          message:
+            language === 'he'
+              ? `מספר הזמנה: ${jobRef}\n\nמעביר אותך למעקב ההזמנה.`
+              : `Order reference: ${jobRef}\n\nTaking you to order tracking.`,
+          onConfirm: () => {
+            router.replace({ pathname: '/job-tracking', params: { id: newJob.id } });
+          },
+        });
+      } else {
+        router.replace({ pathname: '/job-tracking', params: { id: newJob.id } });
+      }
     } catch (error: any) {
       console.error('Error creating job:', error);
       if (error?.status === 409 || (error?.message && (error.message.includes('409') || error.message.includes('הזמנה פעילה') || error.message.includes('active order')))) {
@@ -303,14 +344,14 @@ export default function TechnicianSelectScreen() {
       </View>
 
       {/* Mini Map */}
-      {currentLocation && (
+      {effectiveLocation && (
         <View className="h-48 bg-gray-200">
           <MapView
             style={{ flex: 1 }}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             initialRegion={{
-              latitude: currentLocation.latitude,
-              longitude: currentLocation.longitude,
+              latitude: effectiveLocation.latitude,
+              longitude: effectiveLocation.longitude,
               latitudeDelta: 0.05,
               longitudeDelta: 0.05,
             }}

@@ -162,10 +162,10 @@ export async function readGrowWebhookBody(req: Request): Promise<Record<string, 
     return {};
   }
 
-  const body = await req.parseBody();
+  const form = await req.formData();
   const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(body)) {
-    out[key] = typeof value === "string" ? value : value;
+  for (const [key, value] of form.entries()) {
+    out[key] = value;
   }
   return out;
 }

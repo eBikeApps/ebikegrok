@@ -8,9 +8,11 @@ import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authClient } from './auth/auth-client';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const NOTIFICATIONS_PREF_KEY = 'notifications-enabled-pref';
 
 // How to display notifications when app is in foreground
 Notifications.setNotificationHandler({
@@ -27,7 +29,43 @@ Notifications.setNotificationHandler({
  * Registers the device for push notifications and saves the token to the backend.
  * Safe to call at any time - silently skips if running on a simulator or if permission is denied.
  */
+export async function getNotificationsPreference(): Promise<boolean> {
+  const stored = await AsyncStorage.getItem(NOTIFICATIONS_PREF_KEY);
+  if (stored === 'false') return false;
+  const { status } = await Notifications.getPermissionsAsync();
+  return status === 'granted';
+}
+
+export async function setNotificationsPreference(enabled: boolean): Promise<boolean> {
+  await AsyncStorage.setItem(NOTIFICATIONS_PREF_KEY, enabled ? 'true' : 'false');
+  if (!enabled) {
+    await clearPushTokenOnBackend();
+    return false;
+  }
+  const token = await registerForPushNotifications();
+  return !!token;
+}
+
+async function clearPushTokenOnBackend(): Promise<void> {
+  try {
+    const session = await authClient.getSession();
+    if (!session?.data?.session?.token) return;
+    await fetch(`${BACKEND_URL}/api/users/push-token`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${session.data.session.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token: null }),
+    });
+  } catch {
+    // ignore
+  }
+}
+
 export async function registerForPushNotifications(): Promise<string | null> {
+  const pref = await AsyncStorage.getItem(NOTIFICATIONS_PREF_KEY);
+  if (pref === 'false') return null;
   try {
     if (!Device.isDevice) return null;
 

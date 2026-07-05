@@ -49,6 +49,7 @@ import { Image } from 'expo-image';
 import { playSystemSound } from '@/lib/system-sounds';
 
 import { useLanguageStore, useRepairRequestStore } from '@/lib/store';
+import { geocodeCustomerAddress } from '@/lib/geocode-address';
 import { BikeType, RepairCategory, REPAIR_CATEGORIES, PRICE_RANGES } from '@/lib/types';
 import { cn } from '@/lib/cn';
 
@@ -80,6 +81,7 @@ export default function RepairRequestScreen() {
   const setCustomerCity = useRepairRequestStore((s) => s.setCustomerCity);
   const setCustomerStreet = useRepairRequestStore((s) => s.setCustomerStreet);
   const setCustomerHouseNumber = useRepairRequestStore((s) => s.setCustomerHouseNumber);
+  const setCustomerLocation = useRepairRequestStore((s) => s.setCustomerLocation);
   const reset = useRepairRequestStore((s) => s.reset);
 
   const [nameError, setNameError] = useState(false);
@@ -97,6 +99,7 @@ export default function RepairRequestScreen() {
   const [streetSearch, setStreetSearch] = useState('');
   const [availableStreets, setAvailableStreets] = useState<string[]>([]);
   const [streetsLoading, setStreetsLoading] = useState(false);
+  const [geocodingAddress, setGeocodingAddress] = useState(false);
 
   useEffect(() => {
     if (!customerCity) {
@@ -145,7 +148,42 @@ export default function RepairRequestScreen() {
     }
   };
 
-  const handleNext = () => {
+  const resolveAddressLocation = async (): Promise<boolean> => {
+    setGeocodingAddress(true);
+    try {
+      const location = await geocodeCustomerAddress({
+        city: customerCity,
+        street: customerStreet,
+        houseNumber: customerHouseNumber,
+      });
+      if (!location) {
+        playSystemSound('error');
+        setInfoModal({
+          visible: true,
+          title: t('error'),
+          message:
+            language === 'he'
+              ? 'לא מצאנו את הכתובת. בדוק עיר, רחוב ומספר בית ונסה שוב.'
+              : 'Could not find that address. Check city, street and house number.',
+        });
+        return false;
+      }
+      setCustomerLocation(location);
+      return true;
+    } catch {
+      playSystemSound('error');
+      setInfoModal({
+        visible: true,
+        title: t('error'),
+        message: t('networkError'),
+      });
+      return false;
+    } finally {
+      setGeocodingAddress(false);
+    }
+  };
+
+  const handleNext = async () => {
     if (currentStep === 1 && !photoUri) {
       playSystemSound('error');
       setInfoModal({ visible: true, title: t('error'), message: t('photoRequired') });
@@ -198,6 +236,9 @@ export default function RepairRequestScreen() {
         playSystemSound('error');
         return;
       }
+
+      const geocoded = await resolveAddressLocation();
+      if (!geocoded) return;
     }
 
     if (currentStep < TOTAL_STEPS) {
@@ -766,8 +807,8 @@ export default function RepairRequestScreen() {
       <View className="px-6 pb-6 pt-4">
         <Pressable
           onPress={handleNext}
-          disabled={!canProceed()}
-          className={cn('rounded-2xl overflow-hidden', !canProceed() && 'opacity-50')}
+          disabled={!canProceed() || geocodingAddress}
+          className={cn('rounded-2xl overflow-hidden', (!canProceed() || geocodingAddress) && 'opacity-50')}
         >
           <LinearGradient
             colors={['#3B82F6', '#8B5CF6']}
@@ -776,7 +817,11 @@ export default function RepairRequestScreen() {
             style={{ paddingVertical: 16, alignItems: 'center' }}
           >
             <Text className="text-white font-bold text-lg">
-              {currentStep === TOTAL_STEPS ? t('findTechnician') : t('next')}
+              {geocodingAddress
+                ? (language === 'he' ? 'מאתר כתובת…' : 'Finding address…')
+                : currentStep === TOTAL_STEPS
+                  ? t('findTechnician')
+                  : t('next')}
             </Text>
           </LinearGradient>
         </Pressable>

@@ -90,7 +90,7 @@ techniciansRouter.get("/available", zValidator("query", availableQuerySchema), a
           );
 
           // Filter by service radius (minimum 1km)
-          if (distance > Math.max(tech.serviceRadius || 15, 1)) {
+          if (distance > Math.max(tech.serviceRadius || 40, 1)) {
             return null;
           }
 

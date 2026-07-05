@@ -1,17 +1,20 @@
-import React, { useState } from 'react';
-import { View, Text, Pressable, ScrollView, I18nManager } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, Pressable, ScrollView, I18nManager, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import { Briefcase, Clock, CheckCircle, ChevronLeft, ChevronRight, MapPin } from 'lucide-react-native';
+import { Briefcase, ChevronLeft, ChevronRight, MapPin } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { format } from 'date-fns';
 import { he } from 'date-fns/locale';
 
-import { useLanguageStore, useTechnicianStore } from '@/lib/store';
+import { useLanguageStore } from '@/lib/store';
 import { Job } from '@/lib/types';
 import { cn } from '@/lib/cn';
+import { formatJobReference } from '@/lib/job-reference';
+import { authClient } from '@/lib/auth/auth-client';
+import { mapDbJobToCustomerJob } from '@/lib/active-job-sync';
 
 type TabOption = 'active' | 'today' | 'week' | 'all';
 
@@ -19,9 +22,39 @@ export default function TechnicianJobsScreen() {
   const router = useRouter();
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
-  const activeJobs = useTechnicianStore((s) => s.activeJobs);
 
   const [activeTab, setActiveTab] = useState<TabOption>('active');
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchJobs = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const session = await authClient.getSession();
+      const token = (session as any)?.data?.session?.token;
+      if (!token) return;
+      const res = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/jobs`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const mapped = (data.jobs ?? []).map(mapDbJobToCustomerJob);
+      setJobs(mapped);
+    } catch {
+      // keep previous list
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchJobs(false);
+    }, [fetchJobs])
+  );
 
   const tabs: { key: TabOption; label: string }[] = [
     { key: 'active', label: language === 'he' ? 'פעילות' : 'Active' },
@@ -30,9 +63,7 @@ export default function TechnicianJobsScreen() {
     { key: 'all', label: t('all') },
   ];
 
-  const allJobs = [...activeJobs];
-
-  const filteredJobs = allJobs.filter((job) => {
+  const filteredJobs = jobs.filter((job) => {
     const jobDate = new Date(job.created_at);
     const now = new Date();
 
@@ -41,9 +72,10 @@ export default function TechnicianJobsScreen() {
         return !['completed', 'cancelled'].includes(job.status);
       case 'today':
         return jobDate.toDateString() === now.toDateString();
-      case 'week':
+      case 'week': {
         const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         return jobDate >= weekAgo;
+      }
       default:
         return true;
     }
@@ -78,12 +110,10 @@ export default function TechnicianJobsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
-      {/* Header */}
       <View className="px-4 py-4 bg-white border-b border-gray-100">
         <Text className="text-2xl font-bold text-gray-900">{t('jobs')}</Text>
       </View>
 
-      {/* Tabs */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -100,21 +130,25 @@ export default function TechnicianJobsScreen() {
               activeTab === tab.key ? 'bg-blue-500' : 'bg-gray-100'
             )}
           >
-            <Text
-              className={cn(
-                'font-medium',
-                activeTab === tab.key ? 'text-white' : 'text-gray-600'
-              )}
-            >
+            <Text className={cn('font-medium', activeTab === tab.key ? 'text-white' : 'text-gray-600')}>
               {tab.label}
             </Text>
           </Pressable>
         ))}
       </ScrollView>
 
-      {/* Jobs List */}
-      <ScrollView className="flex-1 px-4 py-4" contentContainerStyle={{ paddingBottom: 20 }}>
-        {filteredJobs.length === 0 ? (
+      <ScrollView
+        className="flex-1 px-4 py-4"
+        contentContainerStyle={{ paddingBottom: 20 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => fetchJobs(true)} tintColor="#3B82F6" />
+        }
+      >
+        {loading ? (
+          <View className="py-20 items-center">
+            <ActivityIndicator size="large" color="#3B82F6" />
+          </View>
+        ) : filteredJobs.length === 0 ? (
           <View className="flex-1 items-center justify-center py-20">
             <Briefcase size={48} color="#D1D5DB" />
             <Text className="mt-4 text-gray-400 text-lg">{t('noJobs')}</Text>
@@ -125,10 +159,7 @@ export default function TechnicianJobsScreen() {
             const isActive = !['completed', 'cancelled'].includes(job.status);
 
             return (
-              <Animated.View
-                key={job.id}
-                entering={FadeInUp.delay(index * 80).duration(400)}
-              >
+              <Animated.View key={job.id} entering={FadeInUp.delay(index * 80).duration(400)}>
                 <Pressable
                   onPress={() => handleJobPress(job)}
                   disabled={!isActive}
@@ -151,14 +182,21 @@ export default function TechnicianJobsScreen() {
                   </View>
 
                   <View className="flex-row">
-                    {/* Photo */}
-                    <Image
-                      source={{ uri: job.photo_url }}
-                      style={{ width: 64, height: 64, borderRadius: 12 }}
-                    />
+                    {job.photo_url ? (
+                      <Image
+                        source={{ uri: job.photo_url }}
+                        style={{ width: 64, height: 64, borderRadius: 12 }}
+                      />
+                    ) : (
+                      <View style={{ width: 64, height: 64, borderRadius: 12, backgroundColor: '#F3F4F6' }} />
+                    )}
 
-                    {/* Details */}
                     <View className="flex-1 mx-3">
+                      {!!formatJobReference(job.job_number) && (
+                        <Text className="text-blue-600 text-xs font-bold mb-0.5">
+                          {formatJobReference(job.job_number)}
+                        </Text>
+                      )}
                       <Text className="text-gray-900 font-semibold" numberOfLines={1}>
                         {job.customer?.name ?? 'לקוח'}
                       </Text>
@@ -168,12 +206,11 @@ export default function TechnicianJobsScreen() {
                       <View className="flex-row items-center mt-2">
                         <MapPin size={12} color="#6B7280" />
                         <Text className="text-gray-400 text-xs ml-1" numberOfLines={1}>
-                          {job.customer_location.address ?? 'מיקום הלקוח'}
+                          {job.customer_location?.address ?? 'מיקום הלקוח'}
                         </Text>
                       </View>
                     </View>
 
-                    {/* Price & Arrow */}
                     <View className="items-end justify-between">
                       <Text className="text-gray-900 font-bold">
                         {job.final_price ? `₪${job.final_price}` : `₪${job.estimated_price_min}-${job.estimated_price_max}`}

@@ -65,6 +65,7 @@ export default function PaymentScreen() {
   }, [state, jobId]);
 
   const amountNum = Number(amount ?? 0);
+  const isMockCheckout = (paymentUrl ?? '').includes('/api/payments/mock/');
 
   const handleNavigationChange = (navState: WebViewNavigation) => {
     const url = navState.url ?? '';
@@ -231,8 +232,10 @@ export default function PaymentScreen() {
           </Pressable>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <ShieldCheck size={14} color="#10B981" />
-            <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '600' }}>תשלום מאובטח</Text>
+            <ShieldCheck size={14} color={isMockCheckout ? '#D97706' : '#10B981'} />
+            <Text style={{ color: isMockCheckout ? '#D97706' : '#10B981', fontSize: 12, fontWeight: '600' }}>
+              {isMockCheckout ? 'תשלום לדוגמה' : 'תשלום מאובטח'}
+            </Text>
           </View>
 
           <View style={{ width: 36 }} />

@@ -110,6 +110,7 @@ export interface RepairRequest {
 export interface Job {
   id: string;
   job_number?: number;
+  job_reference?: string;
   customer_id: string;
   technician_id?: string;
   status: JobStatus;

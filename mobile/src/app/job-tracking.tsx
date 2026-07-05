@@ -26,6 +26,12 @@ import { JobStatus } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api/api';
 import { dialPhoneNumber } from '@/lib/phone';
+import { shouldSkipCompletionScreen } from '@/lib/completion-flow';
+import {
+  clearCustomerActiveJobState,
+  resolveJobTrackingEntry,
+} from '@/lib/active-job-sync';
+import { formatJobReference } from '@/lib/job-reference';
 
 const statusSteps: { key: JobStatus; labelKey: string; icon: string; timestampField: keyof typeof timestampFields }[] = [
   { key: 'accepted', labelKey: 'technicianSetOff', icon: '🚀', timestampField: 'accepted_at' },
@@ -532,7 +538,16 @@ export default function JobTrackingScreen() {
   const updateJobStatus = useActiveJobStore((s) => s.updateJobStatus);
   const updateJobTimestamps = useActiveJobStore((s) => s.updateJobTimestamps);
   const updateJobFinalPrice = useActiveJobStore((s) => s.updateJobFinalPrice);
-  const currentLocation = useLocationStore((s) => s.currentLocation);
+  const deviceLocation = useLocationStore((s) => s.currentLocation);
+  const jobCustomerLocation =
+    activeJob?.customer_location?.latitude != null &&
+    activeJob?.customer_location?.longitude != null
+      ? {
+          latitude: activeJob.customer_location.latitude,
+          longitude: activeJob.customer_location.longitude,
+        }
+      : null;
+  const mapCustomerLocation = jobCustomerLocation ?? deviceLocation;
 
   const initialEta = (activeJob?.technician as any)?.eta ?? 15;
   const [eta, setEta] = useState<number>(initialEta);
@@ -555,12 +570,37 @@ export default function JobTrackingScreen() {
   // C02 FIX: isMountedRef prevents state updates after unmount and stops any
   // in-flight poll from triggering navigation/state writes on an unmounted tree
   const isMountedRef = useRef(true);
+  const completionNavigatedRef = useRef(false);
   useEffect(() => {
     isMountedRef.current = true;
+    completionNavigatedRef.current = false;
     return () => {
       isMountedRef.current = false;
     };
-  }, []);
+  }, [params.id]);
+
+  const [entryReady, setEntryReady] = useState(false);
+
+  const goHomeAfterCompletion = useCallback(() => {
+    clearCustomerActiveJobState();
+    if (isMountedRef.current) {
+      router.replace('/(customer)/(tabs)');
+    }
+  }, [router]);
+
+  const navigateToCompletionIfNeeded = useCallback(async (jobId: string) => {
+    if (completionNavigatedRef.current) return;
+    if (await shouldSkipCompletionScreen(jobId)) {
+      completionNavigatedRef.current = true;
+      goHomeAfterCompletion();
+      return;
+    }
+    completionNavigatedRef.current = true;
+    clearCustomerActiveJobState();
+    if (isMountedRef.current) {
+      router.replace({ pathname: '/job-complete', params: { id: jobId } });
+    }
+  }, [goHomeAfterCompletion, router]);
 
   const pollJobStatus = useCallback(async () => {
     const liveStatus = statusRef.current;
@@ -578,6 +618,7 @@ export default function JobTrackingScreen() {
         }
 
         updateJobStatus(newStatus);
+        statusRef.current = newStatus;
         updateJobTimestamps({
           accepted_at: dbJob.acceptedAt ?? undefined,
           on_way_at: dbJob.onWayAt ?? undefined,
@@ -590,9 +631,7 @@ export default function JobTrackingScreen() {
           if (dbJob.finalPrice !== undefined && dbJob.finalPrice !== null) {
             updateJobFinalPrice(dbJob.finalPrice);
           }
-          if (isMountedRef.current) {
-            router.replace({ pathname: '/job-complete', params: { id: params.id } });
-          }
+          await navigateToCompletionIfNeeded(params.id);
         }
       }
 
@@ -617,23 +656,68 @@ export default function JobTrackingScreen() {
     } catch (error) {
       console.error('Error polling job status:', error);
     }
-  }, [params.id]);
+  }, [params.id, navigateToCompletionIfNeeded, updateJobStatus, updateJobTimestamps, updateJobFinalPrice, setTechnicianLocation]);
+
+  // Resolve entry from server — prevents ghost orders after completion / app restart
+  useEffect(() => {
+    let cancelled = false;
+    setEntryReady(false);
+
+    (async () => {
+      if (!params.id) {
+        goHomeAfterCompletion();
+        return;
+      }
+      const resolution = await resolveJobTrackingEntry(params.id);
+      if (cancelled || !isMountedRef.current) return;
+
+      if (resolution.action === 'home') {
+        goHomeAfterCompletion();
+        return;
+      }
+      if (resolution.action === 'complete') {
+        completionNavigatedRef.current = true;
+        clearCustomerActiveJobState();
+        router.replace({ pathname: '/job-complete', params: { id: resolution.jobId } });
+        return;
+      }
+
+      useActiveJobStore.getState().setActiveJob(resolution.job);
+      statusRef.current = resolution.job.status;
+      const pay = resolution.job.payment_status ?? 'pending';
+      paymentStatusRef.current = pay;
+      setPaymentStatus(pay);
+      setEntryReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [params.id, goHomeAfterCompletion, router]);
 
   useEffect(() => {
-    if (!activeJob || activeJob.status === 'completed' || activeJob.status === 'cancelled') return;
+    if (!entryReady || !activeJob || !params.id) return;
+    if (activeJob.status === 'completed') {
+      navigateToCompletionIfNeeded(params.id);
+      return;
+    }
+    if (activeJob.status === 'cancelled') {
+      goHomeAfterCompletion();
+      return;
+    }
     pollJobStatus();
     const interval = setInterval(pollJobStatus, 3000);
     return () => clearInterval(interval);
-  }, [activeJob?.status, pollJobStatus]);
+  }, [entryReady, activeJob?.status, activeJob?.id, params.id, pollJobStatus, navigateToCompletionIfNeeded, goHomeAfterCompletion]);
 
   // Recalculate ETA whenever technician location changes
   useEffect(() => {
     const techLoc = technicianLocation ?? activeJob?.technician?.current_location;
-    const custLoc = currentLocation ?? (activeJob?.customer_location as any);
+    const custLoc = mapCustomerLocation;
     if (!techLoc || !custLoc) return;
     const dist = calcDistance(techLoc.latitude, techLoc.longitude, custLoc.latitude, custLoc.longitude);
     setEta(calcEta(dist));
-  }, [technicianLocation, currentLocation]);
+  }, [technicianLocation, mapCustomerLocation?.latitude, mapCustomerLocation?.longitude]);
 
   const handleCall = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -683,7 +767,15 @@ export default function JobTrackingScreen() {
     if (!params.id) return;
     setPaymentLoading(true);
     try {
-      const result = await api.post<{ paymentUrl?: string; alreadyPaid?: boolean; error?: string; amount?: number }>(
+      const result = await api.post<{
+        paymentUrl?: string;
+        alreadyPaid?: boolean;
+        error?: string;
+        amount?: number;
+        mockMode?: boolean;
+        jobReference?: string;
+        description?: string;
+      }>(
         '/api/payments/create',
         { jobId: params.id }
       );
@@ -700,7 +792,11 @@ export default function JobTrackingScreen() {
             jobId: params.id,
             paymentUrl: result.paymentUrl,
             amount: (result.amount || activeJob?.estimated_price_min || 0).toString(),
-            description: 'תשלום עבור תיקון אופניים',
+            description:
+              result.description ??
+              (formatJobReference(activeJob?.job_number)
+                ? `תשלום עבור ${formatJobReference(activeJob?.job_number)}`
+                : 'תשלום עבור תיקון אופניים'),
           },
         });
       } else {
@@ -708,10 +804,11 @@ export default function JobTrackingScreen() {
       }
     } catch (e: any) {
       const msg = e?.message || '';
-      if (msg.includes('GROW') || msg.includes('טרם הוגדרה') || msg.includes('not configured')) {
-        setInfoModal({ visible: true, title: 'ספק תשלומים לא מוגדר', message: 'לא ניתן ליצור דף תשלום אמיתי (GROW לא מוגדר). השתמש בכפתור Simulate למטה לבדיקה.' });
+      const mockEnabled = process.env.EXPO_PUBLIC_MOCK_PAYMENTS === 'true';
+      if (!mockEnabled && (msg.includes('GROW') || msg.includes('טרם הוגדרה') || msg.includes('not configured'))) {
+        setInfoModal({ visible: true, title: 'ספק תשלומים לא מוגדר', message: 'לא ניתן ליצור דף תשלום. הפעל MOCK_PAYMENTS בשרת לבדיקות.' });
       } else {
-        setInfoModal({ visible: true, title: 'שגיאה', message: 'לא ניתן ליצור דף תשלום. אנא נסה שנית.' });
+        setInfoModal({ visible: true, title: 'שגיאה', message: msg || 'לא ניתן ליצור דף תשלום. אנא נסה שנית.' });
       }
     } finally {
       setPaymentLoading(false);
@@ -769,13 +866,20 @@ export default function JobTrackingScreen() {
     setIsCancelling(true);
     try {
       if (params.id) await api.patch(`/api/jobs/${params.id}/status`, { status: 'cancelled' });
+      updateJobStatus('cancelled');
+      clearCustomerActiveJobState();
+      setTimeout(() => {
+        router.replace('/(customer)/(tabs)');
+      }, 2200);
     } catch (error) {
       console.error('Error cancelling job:', error);
+      setIsCancelling(false);
+      setInfoModal({
+        visible: true,
+        title: t('error'),
+        message: isRTL ? 'לא הצלחנו לבטל את ההזמנה. נסה שוב.' : 'Could not cancel the order. Please try again.',
+      });
     }
-    updateJobStatus('cancelled');
-    setTimeout(() => {
-      router.replace('/(customer)/(tabs)');
-    }, 2200);
   };
 
   const getCurrentStepIndex = (): number => {
@@ -790,48 +894,31 @@ export default function JobTrackingScreen() {
     return step ? t(step.labelKey as keyof typeof t) : '';
   };
 
-  // Fetch job from API if store is empty (e.g. after app restart)
-  useEffect(() => {
-    if (!activeJob && params.id) {
-      api.get<{ job: any }>(`/api/jobs/${params.id}`).then((result) => {
-        if (result.job && isMountedRef.current) {
-          const dbJob = result.job;
-          const mapped = {
-            id: dbJob.id,
-            job_number: dbJob.jobNumber,
-            customer_id: dbJob.customerId,
-            technician_id: dbJob.technicianId,
-            status: dbJob.status,
-            photo_url: dbJob.photoUrl ?? '',
-            description: dbJob.description ?? '',
-            bike_type: dbJob.bikeType,
-            categories: dbJob.category?.split(', ').filter(Boolean) ?? [],
-            estimated_price_min: dbJob.estimatedPriceMin ?? 0,
-            estimated_price_max: dbJob.estimatedPriceMax ?? 0,
-            customer_location: { latitude: dbJob.customerLocationLat, longitude: dbJob.customerLocationLng },
-            created_at: dbJob.createdAt,
-            technician: dbJob.technician ? {
-              id: dbJob.technician.id, name: dbJob.technician.name,
-              email: dbJob.technician.email ?? '', phone: dbJob.technician.phone ?? '',
-              avatar_url: dbJob.technician.image ?? '', role: 'technician' as const,
-              rating: dbJob.technician.rating ?? 0, total_reviews: dbJob.technician.totalReviews ?? 0,
-              verification_status: 'verified' as const, vehicle_type: dbJob.technician.vehicleType ?? '',
-              service_radius: 10, is_available: true, base_price: dbJob.technician.basePrice ?? 0,
-              total_earnings: 0, current_location: undefined, created_at: '', updated_at: '',
-            } : undefined,
-          };
-          const { setActiveJob } = useActiveJobStore.getState();
-          setActiveJob(mapped as any);
-        } else if (!result.job && isMountedRef.current) {
-          router.replace('/(customer)/(tabs)');
-        }
-      }).catch(() => {
-        if (isMountedRef.current) router.replace('/(customer)/(tabs)');
-      });
-    }
-  }, [params.id]);
+  const cancelModals = (
+    <>
+      <ConfirmModal
+        visible={cancelModal}
+        title={t('cancelOrder')}
+        message={isRTL ? 'האם אתה בטוח שברצונך לבטל את ההזמנה?' : 'Are you sure you want to cancel this order?'}
+        confirmText={t('yes')}
+        cancelText={t('no')}
+        onConfirm={confirmCancel}
+        onCancel={() => setCancelModal(false)}
+        destructive
+      />
+      <ConfirmModal
+        visible={infoModal.visible}
+        title={infoModal.title}
+        message={infoModal.message}
+        confirmText={t('close')}
+        cancelText={t('close')}
+        onConfirm={() => setInfoModal((s) => ({ ...s, visible: false }))}
+        onCancel={() => setInfoModal((s) => ({ ...s, visible: false }))}
+      />
+    </>
+  );
 
-  if (!activeJob) {
+  if (!entryReady || !activeJob) {
     return (
       <View style={{ flex: 1, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ color: '#94A3B8', fontSize: 16 }}>{t('loading')}</Text>
@@ -845,21 +932,31 @@ export default function JobTrackingScreen() {
 
   // Show waiting screen while pending
   if (activeJob.status === 'pending') {
-    return <WaitingScreen onCancel={handleCancel} />;
+    return (
+      <>
+        <WaitingScreen onCancel={handleCancel} />
+        {cancelModals}
+      </>
+    );
   }
 
   // Show payment screen when technician accepted but customer hasn't paid yet
   if (activeJob.status === 'accepted' && paymentStatus !== 'paid') {
-    const enableDevSimulate = process.env.EXPO_PUBLIC_ENABLE_DEV_SIMULATE_PAY === 'true';
+    const mockPayments = process.env.EXPO_PUBLIC_MOCK_PAYMENTS === 'true';
+    const enableDevSimulate =
+      process.env.EXPO_PUBLIC_ENABLE_DEV_SIMULATE_PAY === 'true' && !mockPayments;
     return (
-      <PaymentRequiredScreen
-        technician={activeJob.technician}
-        amount={activeJob.estimated_price_min}
-        onPayNow={handlePayNow}
-        onCancel={handleCancel}
-        onSimulatePay={enableDevSimulate ? handleSimulatePay : undefined}
-        paymentLoading={paymentLoading}
-      />
+      <>
+        <PaymentRequiredScreen
+          technician={activeJob.technician}
+          amount={activeJob.estimated_price_min}
+          onPayNow={handlePayNow}
+          onCancel={handleCancel}
+          onSimulatePay={enableDevSimulate ? handleSimulatePay : undefined}
+          paymentLoading={paymentLoading}
+        />
+        {cancelModals}
+      </>
     );
   }
 
@@ -872,17 +969,17 @@ export default function JobTrackingScreen() {
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       {/* Map */}
       <View style={{ height: '58%' }}>
-        {currentLocation && techLocation ? (
+        {mapCustomerLocation && techLocation ? (
           <MapView
             style={{ flex: 1 }}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             initialRegion={{
-              latitude: (currentLocation.latitude + techLocation.latitude) / 2,
-              longitude: (currentLocation.longitude + techLocation.longitude) / 2,
-              latitudeDelta: Math.abs(currentLocation.latitude - techLocation.latitude) * 2 + 0.01,
-              longitudeDelta: Math.abs(currentLocation.longitude - techLocation.longitude) * 2 + 0.01,
+              latitude: (mapCustomerLocation.latitude + techLocation.latitude) / 2,
+              longitude: (mapCustomerLocation.longitude + techLocation.longitude) / 2,
+              latitudeDelta: Math.abs(mapCustomerLocation.latitude - techLocation.latitude) * 2 + 0.01,
+              longitudeDelta: Math.abs(mapCustomerLocation.longitude - techLocation.longitude) * 2 + 0.01,
             }}
-            showsUserLocation
+            showsUserLocation={!!deviceLocation}
             showsCompass={false}
           >
             <Marker
@@ -905,10 +1002,18 @@ export default function JobTrackingScreen() {
               </View>
             </Marker>
 
+            <Marker coordinate={mapCustomerLocation}>
+              <View style={[styles.markerContainer, { borderColor: '#10B981' }]}>
+                <View style={[styles.markerFallback, { backgroundColor: '#10B981' }]}>
+                  <MapPin size={20} color="#fff" />
+                </View>
+              </View>
+            </Marker>
+
             <Polyline
               coordinates={[
                 { latitude: techLocation.latitude, longitude: techLocation.longitude },
-                { latitude: currentLocation.latitude, longitude: currentLocation.longitude },
+                { latitude: mapCustomerLocation.latitude, longitude: mapCustomerLocation.longitude },
               ]}
               strokeColor="#3B82F6"
               strokeWidth={3}
@@ -937,9 +1042,9 @@ export default function JobTrackingScreen() {
               <PulseDot />
               <View>
                 <Text style={styles.statusBadgeText}>{getStatusLabel()}</Text>
-                {activeJob?.job_number && (
+                {!!formatJobReference(activeJob?.job_number) && (
                   <Text style={{ fontSize: 11, color: '#94A3B8', fontWeight: '600', marginTop: 1 }}>
-                    הזמנה #{activeJob.job_number}
+                    {formatJobReference(activeJob?.job_number)}
                   </Text>
                 )}
               </View>
@@ -1123,26 +1228,7 @@ export default function JobTrackingScreen() {
         </View>
       </Animated.View>
 
-      <ConfirmModal
-        visible={cancelModal}
-        title={t('cancelOrder')}
-        message={isRTL ? 'האם אתה בטוח שברצונך לבטל את ההזמנה?' : 'Are you sure you want to cancel this order?'}
-        confirmText={t('yes')}
-        cancelText={t('no')}
-        onConfirm={confirmCancel}
-        onCancel={() => setCancelModal(false)}
-        destructive
-      />
-
-      <ConfirmModal
-        visible={infoModal.visible}
-        title={infoModal.title}
-        message={infoModal.message}
-        confirmText={t('close')}
-        cancelText={t('close')}
-        onConfirm={() => setInfoModal((s) => ({ ...s, visible: false }))}
-        onCancel={() => setInfoModal((s) => ({ ...s, visible: false }))}
-      />
+      {cancelModals}
     </View>
   );
 }

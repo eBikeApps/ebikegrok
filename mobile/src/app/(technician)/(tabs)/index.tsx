@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import Animated, { FadeInUp, FadeIn, FadeInRight, SlideInUp, SlideOutUp } from 'react-native-reanimated';
-import { Star, MapPin, Briefcase, DollarSign, Check, Wrench, RefreshCw, Bell, Phone } from 'lucide-react-native';
+import { Star, MapPin, Briefcase, DollarSign, Check, Wrench, RefreshCw, Bell, Phone, MessageCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,6 +17,8 @@ import { authClient } from '@/lib/auth/auth-client';
 import { useSession } from '@/lib/auth/use-session';
 import { registerForPushNotifications } from '@/lib/push-notifications';
 import { playSystemSound } from '@/lib/system-sounds';
+import { formatJobReference } from '@/lib/job-reference';
+import { dialPhoneNumber, openWhatsAppChat } from '@/lib/phone';
 
 export default function TechnicianDashboardScreen() {
   const router = useRouter();
@@ -97,10 +99,12 @@ export default function TechnicianDashboardScreen() {
 
   const mapJob = (j: any): Job => ({
     id: j.id,
+    job_number: j.jobNumber,
+    job_reference: j.jobReference,
     customer_id: j.customerId,
     technician_id: j.technicianId,
     status: j.status,
-    photo_url: j.photoUrl,
+    photo_url: j.photoUrl ?? '',
     description: j.description,
     bike_type: j.bikeType,
     categories: j.category?.split(', ').filter(Boolean) ?? [],
@@ -545,7 +549,14 @@ export default function TechnicianDashboardScreen() {
                       )}
                       <View className="mr-3">
                         <Text className="text-gray-900 font-bold text-lg">{job.customer?.name ?? 'לקוח'}</Text>
-                        <Text className="text-gray-400 text-sm">{formatTime(job.created_at)}</Text>
+                        <View className="flex-row items-center gap-2 mt-0.5">
+                          {!!formatJobReference(job.job_number) && (
+                            <Text className="text-blue-600 text-xs font-bold">
+                              {formatJobReference(job.job_number)}
+                            </Text>
+                          )}
+                          <Text className="text-gray-400 text-sm">{formatTime(job.created_at)}</Text>
+                        </View>
                       </View>
                     </View>
                     <View className="bg-emerald-50 px-4 py-2 rounded-2xl border border-emerald-100">
@@ -580,12 +591,29 @@ export default function TechnicianDashboardScreen() {
                   <View className="bg-gray-50 rounded-2xl overflow-hidden mb-4">
                     {!!job.customer?.phone && (
                       <View className="flex-row items-center px-4 py-3 border-b border-gray-100">
-                        <View className="w-8 h-8 bg-blue-100 rounded-full items-center justify-center ml-3">
-                          <Phone size={16} color="#3B82F6" />
-                        </View>
-                        <Text className="text-gray-800 text-base font-medium flex-1" style={{ textAlign: 'left', direction: 'ltr' }}>
-                          {job.customer.phone}
-                        </Text>
+                        <Pressable
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            dialPhoneNumber(job.customer?.phone);
+                          }}
+                          className="flex-row items-center flex-1"
+                        >
+                          <View className="w-8 h-8 bg-blue-100 rounded-full items-center justify-center ml-3">
+                            <Phone size={16} color="#3B82F6" />
+                          </View>
+                          <Text className="text-blue-600 text-base font-medium flex-1" style={{ textAlign: 'left', direction: 'ltr' }}>
+                            {job.customer.phone}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => {
+                            Haptics.selectionAsync();
+                            openWhatsAppChat(job.customer?.phone);
+                          }}
+                          className="w-9 h-9 bg-green-500 rounded-full items-center justify-center"
+                        >
+                          <MessageCircle size={18} color="#fff" />
+                        </Pressable>
                       </View>
                     )}
                     {!!job.customer_location.address && (

@@ -225,3 +225,21 @@ ON CONFLICT (user_id) DO NOTHING;
 -- Enable realtime for jobs table (for live tracking)
 ALTER PUBLICATION supabase_realtime ADD TABLE jobs;
 ALTER PUBLICATION supabase_realtime ADD TABLE technician_profiles;
+
+-- =============================================
+-- JOB PHOTOS STORAGE (Supabase Storage)
+-- =============================================
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('job-photos', 'job-photos', true, 5242880, ARRAY['image/jpeg','image/png','image/webp']::text[])
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+DROP POLICY IF EXISTS job_photos_public_read ON storage.objects;
+DROP POLICY IF EXISTS job_photos_anon_insert ON storage.objects;
+CREATE POLICY job_photos_public_read ON storage.objects
+  FOR SELECT TO public USING (bucket_id = 'job-photos');
+CREATE POLICY job_photos_anon_insert ON storage.objects
+  FOR INSERT TO anon, authenticated
+  WITH CHECK (bucket_id = 'job-photos' AND (storage.foldername(name))[1] = 'jobs');

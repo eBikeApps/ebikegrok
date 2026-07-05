@@ -129,6 +129,8 @@ interface RepairRequestState {
   customerCity: string;
   customerStreet: string;
   customerHouseNumber: string;
+  customerLocationLat: number | null;
+  customerLocationLng: number | null;
 
   setStep: (step: number) => void;
   setPhotoUri: (uri: string | null) => void;
@@ -141,6 +143,7 @@ interface RepairRequestState {
   setCustomerCity: (city: string) => void;
   setCustomerStreet: (street: string) => void;
   setCustomerHouseNumber: (houseNumber: string) => void;
+  setCustomerLocation: (location: { latitude: number; longitude: number } | null) => void;
   reset: () => void;
   getRequest: () => RepairRequest | null;
 }
@@ -157,6 +160,8 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
   customerCity: '',
   customerStreet: '',
   customerHouseNumber: '',
+  customerLocationLat: null,
+  customerLocationLng: null,
 
   setStep: (step) => set({ currentStep: step }),
   setPhotoUri: (uri) => set({ photoUri: uri }),
@@ -177,7 +182,12 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
       const combined = state.customerHouseNumber.trim()
         ? `${state.customerStreet} ${state.customerHouseNumber}, ${city}`.trim()
         : parts.join(', ');
-      return { customerCity: city, customerAddress: combined };
+      return {
+        customerCity: city,
+        customerAddress: combined,
+        customerLocationLat: null,
+        customerLocationLng: null,
+      };
     });
   },
   setCustomerStreet: (street) => {
@@ -185,7 +195,12 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
       const combined = state.customerHouseNumber.trim()
         ? `${street} ${state.customerHouseNumber}, ${state.customerCity}`.trim()
         : [street, state.customerCity].filter((p) => p.trim()).join(', ');
-      return { customerStreet: street, customerAddress: combined };
+      return {
+        customerStreet: street,
+        customerAddress: combined,
+        customerLocationLat: null,
+        customerLocationLng: null,
+      };
     });
   },
   setCustomerHouseNumber: (houseNumber) => {
@@ -193,9 +208,20 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
       const combined = houseNumber.trim()
         ? `${state.customerStreet} ${houseNumber}, ${state.customerCity}`.trim()
         : [state.customerStreet, state.customerCity].filter((p) => p.trim()).join(', ');
-      return { customerHouseNumber: houseNumber, customerAddress: combined };
+      return {
+        customerHouseNumber: houseNumber,
+        customerAddress: combined,
+        customerLocationLat: null,
+        customerLocationLng: null,
+      };
     });
   },
+
+  setCustomerLocation: (location) =>
+    set({
+      customerLocationLat: location?.latitude ?? null,
+      customerLocationLng: location?.longitude ?? null,
+    }),
 
   reset: () =>
     set({
@@ -210,6 +236,8 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
       customerCity: '',
       customerStreet: '',
       customerHouseNumber: '',
+      customerLocationLat: null,
+      customerLocationLng: null,
     }),
 
   getRequest: () => {

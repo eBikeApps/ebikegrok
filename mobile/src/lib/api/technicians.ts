@@ -41,7 +41,7 @@ export async function getAvailableTechnicians(
       total_reviews: tech.totalReviews || 0,
       verification_status: tech.isApproved ? 'verified' : 'pending',
       vehicle_type: tech.vehicleType,
-      service_radius: tech.serviceRadius || 15,
+      service_radius: tech.serviceRadius || 40,
       is_available: tech.isAvailable || false,
       current_location: tech.currentLocationLat && tech.currentLocationLng ? {
         latitude: tech.currentLocationLat,
@@ -84,7 +84,7 @@ export async function getTechnicianById(id: string): Promise<TechnicianProfile> 
       total_reviews: tech.totalReviews || 0,
       verification_status: tech.isApproved ? 'verified' : 'pending',
       vehicle_type: tech.vehicleType,
-      service_radius: tech.serviceRadius || 15,
+      service_radius: tech.serviceRadius || 40,
       is_available: tech.isAvailable || false,
       current_location: tech.currentLocationLat && tech.currentLocationLng ? {
         latitude: tech.currentLocationLat,
@@ -149,7 +149,7 @@ export async function updateTechnicianProfile(
       total_reviews: tech.totalReviews || 0,
       verification_status: tech.isApproved ? 'verified' : 'pending',
       vehicle_type: tech.vehicleType,
-      service_radius: tech.serviceRadius || 15,
+      service_radius: tech.serviceRadius || 40,
       is_available: tech.isAvailable || false,
       current_location: tech.currentLocationLat && tech.currentLocationLng ? {
         latitude: tech.currentLocationLat,

@@ -46,3 +46,47 @@ export function canTransitionToOnWay(job: JobLikeForPayment | null): { ok: boole
   }
   return { ok: true };
 }
+
+/** Statuses that require customer payment before the job can advance */
+const PAID_REQUIRED_TARGETS = new Set(["on_way", "arrived", "in_progress", "completed"]);
+
+/**
+ * Any forward job progress (drive, arrive, repair, complete) requires payment.
+ * Cancel is allowed without payment.
+ */
+export function requiresPaymentForStatus(targetStatus: string): boolean {
+  return PAID_REQUIRED_TARGETS.has(targetStatus);
+}
+
+export function canProgressWithPayment(
+  job: JobLikeForPayment | null,
+  targetStatus: string
+): { ok: boolean; error?: string } {
+  if (!job) {
+    return { ok: false, error: "Job not found" };
+  }
+  if (!requiresPaymentForStatus(targetStatus)) {
+    return { ok: true };
+  }
+  if (job.paymentStatus !== "paid") {
+    return {
+      ok: false,
+      error: "לא ניתן להמשיך לפני שהלקוח שילם",
+    };
+  }
+  return { ok: true };
+}
+
+/** Technician may only mark complete when job is in_progress AND paid */
+export function canCompleteJob(job: JobLikeForPayment | null): { ok: boolean; error?: string } {
+  if (!job) {
+    return { ok: false, error: "Job not found" };
+  }
+  if (job.status !== "in_progress") {
+    return { ok: false, error: "ניתן לסמן הושלם רק כשהתיקון בתהליך" };
+  }
+  if (job.paymentStatus !== "paid") {
+    return { ok: false, error: "לא ניתן לסיים עבודה לפני שהלקוח שילם" };
+  }
+  return { ok: true };
+}

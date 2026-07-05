@@ -12,6 +12,10 @@ export default function TechnicianLayout() {
         name="invitations"
         options={{ presentation: 'modal' }}
       />
+      <Stack.Screen
+        name="invite-technician"
+        options={{ presentation: 'modal' }}
+      />
     </Stack>
   );
 }

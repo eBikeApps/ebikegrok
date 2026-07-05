@@ -9,13 +9,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  I18nManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import { ChevronLeft, Send } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Send } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 import { authClient } from '@/lib/auth/auth-client';
@@ -195,7 +196,11 @@ export default function ChatScreen() {
           style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.7 : 1 }]}
           hitSlop={12}
         >
-          <ChevronLeft size={24} color="#F8FAFC" />
+          {I18nManager.isRTL ? (
+            <ChevronRight size={24} color="#F8FAFC" />
+          ) : (
+            <ChevronLeft size={24} color="#F8FAFC" />
+          )}
         </Pressable>
 
         <View style={styles.headerCenter}>

@@ -81,7 +81,7 @@ export default function WithdrawalRequestScreen() {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!token) throw new Error('No session');
-      const res = await fetch(`${BACKEND_URL}/api/technician/withdrawal-request`, {
+      const res = await fetch(`${BACKEND_URL}/api/payments/withdrawal-request`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

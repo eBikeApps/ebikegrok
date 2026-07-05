@@ -10,6 +10,7 @@ import { Image } from 'expo-image';
 import { useLanguageStore } from '@/lib/store';
 import { TechnicianProfile, Review } from '@/lib/types';
 import { cn } from '@/lib/cn';
+import { getTechnicianReviews } from '@/lib/api/reviews';
 
 export default function TechnicianProfileScreen() {
   const router = useRouter();
@@ -59,11 +60,11 @@ export default function TechnicianProfileScreen() {
 
         setTechnician(transformedTech);
 
-        // Fetch real reviews
-        const reviewsRes = await fetch(`${backendUrl}/api/reviews/technician/${params.id}`);
-        if (reviewsRes.ok) {
-          const reviewsData = await reviewsRes.json();
-          setReviews(reviewsData.reviews ?? []);
+        try {
+          const reviewList = await getTechnicianReviews(params.id);
+          setReviews(reviewList);
+        } catch {
+          setReviews([]);
         }
       }
     } catch (error) {
@@ -277,10 +278,38 @@ export default function TechnicianProfileScreen() {
           entering={FadeInUp.delay(500).duration(400)}
           className="mx-4 mt-6"
         >
-          <Text className="text-gray-700 font-semibold mb-2">
-            {language === 'he' ? 'ביקורות אחרונות' : 'Recent Reviews'}
-          </Text>
+          <View className="flex-row items-center justify-between mb-2">
+            <Text className="text-gray-700 font-semibold">
+              {language === 'he' ? 'ביקורות אחרונות' : 'Recent Reviews'}
+            </Text>
+            {(reviews.length > 0 || technician.total_reviews > 0) && (
+              <Pressable
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.push({
+                    pathname: '/reviews',
+                    params: {
+                      technicianId: technician.id,
+                      technicianName: technician.name,
+                      rating: String(technician.rating),
+                    },
+                  });
+                }}
+              >
+                <Text className="text-blue-600 font-semibold text-sm">
+                  {language === 'he' ? 'הצג הכל' : 'See all'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
           <View className="gap-3">
+            {reviews.length === 0 && (
+              <View className="bg-gray-50 rounded-2xl p-4">
+                <Text className="text-gray-500 text-center">
+                  {language === 'he' ? 'אין ביקורות עדיין' : 'No reviews yet'}
+                </Text>
+              </View>
+            )}
             {reviews.slice(0, 3).map((review, index) => (
               <View key={review.id} className="bg-gray-50 rounded-2xl p-4">
                 <View className="flex-row items-center justify-between mb-2">

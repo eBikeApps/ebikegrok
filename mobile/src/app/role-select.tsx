@@ -65,7 +65,7 @@ export default function RoleSelectScreen() {
       technicianScale.value = withSpring(1);
     });
     const ok = await saveRole('technician');
-    if (ok) router.replace('/(customer)/(tabs)');
+    if (ok) router.replace('/technician-pending');
   };
 
   const customerAnimatedStyle = useAnimatedStyle(() => ({

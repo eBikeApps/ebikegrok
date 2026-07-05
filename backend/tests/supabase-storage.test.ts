@@ -10,7 +10,7 @@ describe("supabase storage helpers", () => {
   test("getSupabaseProjectUrl derives from DATABASE_URL", () => {
     process.env.DATABASE_URL =
       "postgresql://postgres.gxwcbdphjmrwmrmtqtms:pass@aws-1-ap-south-1.pooler.supabase.com:5432/postgres";
-    delete process.env.SUPABASE_URL;
+    process.env.SUPABASE_URL = "";
     expect(getSupabaseProjectUrl()).toBe("https://gxwcbdphjmrwmrmtqtms.supabase.co");
   });
 
