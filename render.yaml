@@ -15,3 +15,6 @@ services:
         value: "20"
       - key: BUN_VERSION
         value: "1.2.0"
+      # Set in Render Dashboard (same key as mobile EXPO_PUBLIC_GOOGLE_MAPS_API_KEY)
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
