@@ -29,15 +29,14 @@ export default function Index() {
   if (session?.user && meData?.user) {
     const { role, isApproved, isAdmin } = meData.user;
 
-    if (role === 'pending' || !role) {
-      return <Redirect href="/role-select" />;
-    }
     if (role === 'technician') {
       if (isApproved || isAdmin) {
         return <Redirect href="/(technician)/(tabs)" />;
       }
       return <Redirect href="/technician-pending" />;
     }
+
+    // customer, pending, or unknown — all users register as customers
     return <Redirect href="/(customer)/(tabs)" />;
   }
 

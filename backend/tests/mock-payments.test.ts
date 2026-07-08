@@ -1,52 +1,36 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import {
   encodeMockRef,
   decodeMockRef,
   mockCheckoutUrl,
   isMockPaymentsMode,
+  getActivePaymentProvider,
 } from "../src/lib/mock-payments";
 
 describe("mock payments", () => {
-  const origGrowUser = process.env.GROW_USER_ID;
-  const origGrowPage = process.env.GROW_PAGE_CODE;
   const origMock = process.env.MOCK_PAYMENTS;
-  const origTerminal = process.env.TRANZILA_TERMINAL;
 
   afterEach(() => {
-    process.env.GROW_USER_ID = origGrowUser;
-    process.env.GROW_PAGE_CODE = origGrowPage;
     process.env.MOCK_PAYMENTS = origMock;
-    process.env.TRANZILA_TERMINAL = origTerminal;
   });
 
-  test("isMockPaymentsMode when MOCK_PAYMENTS=true even if Grow keys set", () => {
+  test("isMockPaymentsMode when MOCK_PAYMENTS=true", () => {
     process.env.MOCK_PAYMENTS = "true";
-    process.env.GROW_USER_ID = "123";
-    process.env.GROW_PAGE_CODE = "456";
     expect(isMockPaymentsMode()).toBe(true);
   });
 
-  test("isMockPaymentsMode auto when Grow not configured", () => {
+  test("isMockPaymentsMode off when MOCK_PAYMENTS=false", () => {
+    process.env.MOCK_PAYMENTS = "false";
+    expect(isMockPaymentsMode()).toBe(false);
+  });
+
+  test("isMockPaymentsMode defaults to true when unset", () => {
     process.env.MOCK_PAYMENTS = "";
-    process.env.GROW_USER_ID = "";
-    process.env.GROW_PAGE_CODE = "";
     expect(isMockPaymentsMode()).toBe(true);
   });
 
-  test("isMockPaymentsMode off when Grow configured and flag off", () => {
-    process.env.MOCK_PAYMENTS = "";
-    process.env.TRANZILA_TERMINAL = "";
-    process.env.GROW_USER_ID = "123";
-    process.env.GROW_PAGE_CODE = "456";
-    expect(isMockPaymentsMode()).toBe(false);
-  });
-
-  test("isMockPaymentsMode off when Tranzila configured and flag off", () => {
-    process.env.MOCK_PAYMENTS = "";
-    process.env.TRANZILA_TERMINAL = "myterminal";
-    process.env.GROW_USER_ID = "";
-    process.env.GROW_PAGE_CODE = "";
-    expect(isMockPaymentsMode()).toBe(false);
+  test("getActivePaymentProvider always returns mock", () => {
+    expect(getActivePaymentProvider()).toBe("mock");
   });
 
   test("encode/decode mock ref roundtrip", () => {

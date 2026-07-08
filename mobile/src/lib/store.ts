@@ -13,6 +13,7 @@ import {
   RepairCategory,
 } from './types';
 import { Language, translations, TranslationKey } from './i18n';
+import type { AppColorScheme } from './theme-colors';
 
 // Language store
 interface LanguageState {
@@ -20,6 +21,27 @@ interface LanguageState {
   setLanguage: (lang: Language) => void;
   t: (key: TranslationKey) => string;
 }
+
+interface AppThemeState {
+  colorScheme: AppColorScheme;
+  setColorScheme: (scheme: AppColorScheme) => void;
+  toggleColorScheme: () => void;
+}
+
+export const useAppThemeStore = create<AppThemeState>()(
+  persist(
+    (set, get) => ({
+      colorScheme: 'light',
+      setColorScheme: (scheme) => set({ colorScheme: scheme }),
+      toggleColorScheme: () =>
+        set({ colorScheme: get().colorScheme === 'light' ? 'dark' : 'light' }),
+    }),
+    {
+      name: 'app-theme-storage',
+      storage: createJSONStorage(() => AsyncStorage),
+    }
+  )
+);
 
 export const useLanguageStore = create<LanguageState>()(
   persist(

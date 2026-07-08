@@ -12,10 +12,11 @@ import { paymentsRouter } from "./routes/payments";
 import { messagesRouter } from "./routes/messages";
 import { streetsRouter } from "./routes/streets";
 import { geocodeRouter } from "./routes/geocode";
+import { addressesRouter } from "./routes/addresses";
 import { logger } from "hono/logger";
 import { auth } from "./auth";
 import { ensureJobPhotosBucket, isSupabaseStorageConfigured } from "./lib/supabase-storage";
-import { getActivePaymentProvider } from "./lib/mock-payments";
+import { getActivePaymentProvider, isMockPaymentsMode } from "./lib/mock-payments";
 
 // Type the Hono app with user/session variables
 type HonoEnv = {
@@ -131,19 +132,15 @@ const emailSignupDisabled = ["1", "true", "yes"].includes(
 );
 
 // Health check endpoint (version helps verify Render deployed latest code)
-const BUILD_VERSION = "2026-07-06-tranzila-v1";
+const BUILD_VERSION = "2026-07-07-no-tranzila-v1";
 app.get("/health", (c) => {
-  const tranzilaConfigured = !!(process.env.TRANZILA_TERMINAL ?? "").trim();
-  const growConfigured = !!(process.env.GROW_USER_ID?.trim() && process.env.GROW_PAGE_CODE?.trim());
   const provider = getActivePaymentProvider();
   return c.json({
     status: "ok",
     version: BUILD_VERSION,
     emailSignUpEnabled: !emailSignupDisabled,
-    mockPayments: provider === "mock",
+    mockPayments: isMockPaymentsMode(),
     paymentProvider: provider,
-    tranzilaConfigured,
-    growConfigured,
   });
 });
 
@@ -229,6 +226,8 @@ app.get("/api/me", async (c) => {
         image: true,
         role: true,
         isApproved: true,
+        phone: true,
+        savedAddresses: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -239,7 +238,12 @@ app.get("/api/me", async (c) => {
     }
 
     const isAdmin = isAdminUser(fullUser);
-    return c.json({ user: { ...fullUser, isAdmin } });
+    const savedAddresses = Array.isArray(fullUser.savedAddresses)
+      ? fullUser.savedAddresses
+      : [];
+    return c.json({
+      user: { ...fullUser, savedAddresses, isAdmin },
+    });
   } catch (error) {
     console.error("Error fetching user:", error);
     return c.json({ message: "Internal server error" }, 500);
@@ -1031,6 +1035,7 @@ app.route("/api/payments", paymentsRouter);
 app.route("/api/jobs", messagesRouter);
 app.route("/api/streets", streetsRouter);
 app.route("/api/geocode", geocodeRouter);
+app.route("/api/users/me/addresses", addressesRouter);
 
 // Delete own account - permanent, deletes all user data
 app.delete("/api/users/me", async (c) => {
@@ -1069,6 +1074,7 @@ app.get("/api/users/me", async (c) => {
         role: true,
         isApproved: true,
         phone: true,
+        savedAddresses: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -1077,21 +1083,24 @@ app.get("/api/users/me", async (c) => {
     if (!fullUser) return c.body(null, 404);
 
     const isAdmin = isAdminUser(fullUser);
-    return c.json({ user: { ...fullUser, isAdmin } });
+    const savedAddresses = Array.isArray(fullUser.savedAddresses)
+      ? fullUser.savedAddresses
+      : [];
+    return c.json({ user: { ...fullUser, savedAddresses, isAdmin } });
   } catch (error) {
     console.error("Error fetching user (users/me):", error);
     return c.json({ message: "Internal server error" }, 500);
   }
 });
 
-// Update logged-in user's profile (image, role)
+// Update logged-in user's profile (image, name, phone — role changes admin-only)
 app.patch("/api/users/me", async (c) => {
   const user = c.get("user");
   if (!user) return c.body(null, 401);
 
   try {
     const body = await c.req.json();
-    const { image, role } = body;
+    const { image, role, name, phone } = body;
 
     const updateData: Record<string, unknown> = {};
 
@@ -1099,13 +1108,25 @@ app.patch("/api/users/me", async (c) => {
       updateData.image = image;
     }
 
+    if (typeof name === "string" && name.trim()) {
+      updateData.name = name.trim();
+    }
+
+    if (phone === null || phone === "") {
+      updateData.phone = null;
+    } else if (typeof phone === "string") {
+      updateData.phone = phone.trim();
+    }
+
     if (typeof role === "string") {
+      if (!isAdminUser(user)) {
+        return c.json({ message: "Only an administrator can change user role" }, 403);
+      }
       const validRoles = ["customer", "technician"];
       if (!validRoles.includes(role)) {
         return c.json({ message: "Invalid role" }, 400);
       }
       updateData.role = role;
-      // Technicians start unapproved, customers are auto-approved
       if (role === "technician") {
         updateData.isApproved = false;
       } else {
@@ -1121,7 +1142,15 @@ app.patch("/api/users/me", async (c) => {
     const updated = await prisma.user.update({
       where: { id: user.id },
       data: updateData,
-      select: { id: true, name: true, email: true, image: true, role: true, isApproved: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        image: true,
+        role: true,
+        isApproved: true,
+        phone: true,
+      },
     });
 
     return c.json({ user: updated });

@@ -40,6 +40,10 @@ export interface SavedAddress {
   label: string;
   address: string;
   location: Location;
+  city?: string;
+  street?: string;
+  houseNumber?: string;
+  isDefault?: boolean;
 }
 
 export interface Location {

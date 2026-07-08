@@ -16,6 +16,9 @@ module.exports = {
       //   primary: "#INSERT_VALID_HEX_CODE",
       //   secondary: "#INSERT_VALID_HEX_CODE",
       // },
+      fontFamily: {
+        sans: ['System'],
+      },
       fontSize: {
         xs: "10px",
         sm: "12px",

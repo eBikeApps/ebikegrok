@@ -5,41 +5,12 @@ import { prisma } from "../prisma";
 import { sendPushNotification } from "../lib/push-notifications";
 import { canCreatePayment } from "../lib/payment-gates";
 import {
-  decodeGrowProcessRef,
-  encodeGrowProcessRef,
-  extractGrowPaymentUrl,
-  extractGrowProcessMeta,
-  getGrowApiBase,
-  growApiErrorMessage,
-  isGrowPaidStatus,
-  normalizeGrowFullName,
-  normalizeGrowPhone,
-  parseGrowWebhookPayload,
-  readGrowWebhookBody,
-} from "../lib/grow";
-import {
   createMockToken,
   encodeMockRef,
-  getActivePaymentProvider,
   isMockPaymentsMode,
   mockCheckoutUrl,
   renderMockCheckoutPage,
 } from "../lib/mock-payments";
-import {
-  buildTranzilaIframeFields,
-  createTranzilaCheckoutToken,
-  createTranzilaHandshakeToken,
-  decodeTranzilaRef,
-  encodeTranzilaRef,
-  getTranzilaIframeUrl,
-  isTranzilaConfigured,
-  isTranzilaSuccessResponse,
-  parseTranzilaPayload,
-  readTranzilaWebhookBody,
-  renderTranzilaBridgePage,
-  tranzilaCheckoutUrl,
-  type TranzilaPaymentKind,
-} from "../lib/tranzila";
 import { formatJobReference } from "../lib/job-reference";
 
 type HonoEnv = { Variables: { user: any; session: any } };
@@ -64,194 +35,6 @@ const withdrawalSchema = z.object({
   accountNumber: z.string().regex(/^\d{4,12}$/, "Account must be 4-12 digits"),
   accountHolder: z.string().min(2).max(80).regex(/^[א-ת a-zA-Z\s'.-]+$/u, "Invalid name"),
 });
-
-function getGrowCredentials() {
-  const userId = process.env.GROW_USER_ID;
-  const pageCode = process.env.GROW_PAGE_CODE;
-  if (!userId || !pageCode) throw new Error("GROW_NOT_CONFIGURED");
-  return { userId, pageCode };
-}
-
-async function createTranzilaPaymentPage(params: {
-  amount: number;
-  description: string;
-  jobId: string;
-  entityId: string;
-  kind: TranzilaPaymentKind;
-  customerEmail?: string;
-  customerPhone?: string;
-  customerName?: string;
-}): Promise<{ paymentUrl: string; checkoutToken: string }> {
-  if (!isTranzilaConfigured()) throw new Error("TRANZILA_NOT_CONFIGURED");
-
-  const backendUrl = process.env.BACKEND_URL!;
-  const checkoutToken = createTranzilaCheckoutToken();
-  await createTranzilaHandshakeToken({
-    amount: params.amount,
-    entityId: params.entityId,
-    kind: params.kind,
-  }).catch((err) => {
-    console.warn("[Payments] Tranzila handshake skipped:", err?.message ?? err);
-    return undefined;
-  });
-
-  return {
-    paymentUrl: tranzilaCheckoutUrl(backendUrl, checkoutToken),
-    checkoutToken,
-  };
-}
-
-async function resolveTranzilaPendingPayment(checkoutToken: string) {
-  const ref = encodeTranzilaRef(checkoutToken, "job");
-  const extraRef = encodeTranzilaRef(checkoutToken, "extra");
-
-  const payment = await prisma.payment.findFirst({
-    where: { growTransactionCode: ref, status: "pending" },
-    include: { job: true },
-  });
-  if (payment) {
-    return {
-      kind: "job" as const,
-      entityId: payment.jobId,
-      jobId: payment.jobId,
-      expectedAmount: payment.amount,
-      payment,
-      extra: null,
-    };
-  }
-
-  const extra = await prisma.extraRepairRequest.findFirst({
-    where: { growTransactionCode: extraRef, status: "pending" },
-    include: { job: true },
-  });
-  if (extra) {
-    return {
-      kind: "extra" as const,
-      entityId: extra.id,
-      jobId: extra.jobId,
-      expectedAmount: extra.amount,
-      payment: null,
-      extra,
-    };
-  }
-
-  return null;
-}
-
-async function processTranzilaPaymentSuccess(params: {
-  checkoutToken?: string;
-  kind?: TranzilaPaymentKind;
-  entityId?: string;
-  transactionId: string;
-  amount?: number;
-}): Promise<{ processed: boolean; alreadyProcessed?: boolean }> {
-  let kind = params.kind;
-  let entityId = params.entityId;
-  let expectedAmount = params.amount;
-
-  if (params.checkoutToken) {
-    const pending = await resolveTranzilaPendingPayment(params.checkoutToken);
-    if (!pending) return { processed: false };
-    kind = pending.kind;
-    entityId = pending.entityId;
-    expectedAmount = pending.expectedAmount;
-  }
-
-  if (!kind || !entityId) return { processed: false };
-
-  if (kind === "extra") {
-    const extra = await prisma.extraRepairRequest.findUnique({
-      where: { id: entityId },
-      include: { job: { include: { technician: true } } },
-    });
-    if (!extra) return { processed: false };
-    if (extra.status === "paid") return { processed: true, alreadyProcessed: true };
-
-    if (expectedAmount && Math.abs(expectedAmount - extra.amount) > 0.01) {
-      console.error("[Payments] Tranzila extra amount mismatch:", {
-        entityId,
-        expected: extra.amount,
-        actual: expectedAmount,
-      });
-      return { processed: false };
-    }
-
-    const claim = await prisma.extraRepairRequest.updateMany({
-      where: { id: entityId, status: "pending" },
-      data: {
-        status: "paid",
-        growTransactionCode: params.transactionId,
-        paidAt: new Date(),
-      },
-    });
-    if (claim.count === 0) return { processed: true, alreadyProcessed: true };
-
-    if (extra.job?.technician?.expoPushToken) {
-      await sendPushNotification(
-        extra.job.technician.expoPushToken,
-        "💳 תשלום התקבל",
-        `הלקוח שילם ₪${extra.amount} - תוכל להמשיך בתיקון`,
-        { screen: "active-job", jobId: extra.jobId }
-      );
-    }
-    return { processed: true };
-  }
-
-  const newlyPaid = await markMainJobPaid({
-    jobId: entityId,
-    transactionId: params.transactionId,
-    paymentSum: expectedAmount ?? 0,
-  });
-  return { processed: newlyPaid, alreadyProcessed: !newlyPaid };
-}
-
-async function createGrowPaymentPage(params: {
-  amount: number;
-  description: string;
-  cField1: string;
-  cField2: string;
-  successJobId: string;
-  cancelJobId: string;
-  customerEmail?: string;
-  customerPhone?: string;
-  customerName?: string;
-}): Promise<{ paymentUrl: string; processId?: string; processToken?: string }> {
-  const { userId, pageCode } = getGrowCredentials();
-  const backendUrl = process.env.BACKEND_URL!;
-  const growBase = getGrowApiBase();
-
-  const form = new FormData();
-  form.append("pageCode", pageCode);
-  form.append("userId", userId);
-  form.append("chargeType", "1");
-  form.append("sum", String(params.amount));
-  form.append("successUrl", `${backendUrl}/api/payments/success?jobId=${params.successJobId}`);
-  form.append("cancelUrl", `${backendUrl}/api/payments/cancel?jobId=${params.cancelJobId}`);
-  form.append("description", params.description);
-  form.append("notifyUrl", `${backendUrl}/api/payments/webhook`);
-  form.append("cField1", params.cField1);
-  form.append("cField2", params.cField2);
-  form.append("paymentNum", "1");
-  form.append("pageField[fullName]", normalizeGrowFullName(params.customerName));
-  form.append("pageField[phone]", normalizeGrowPhone(params.customerPhone));
-  if (params.customerEmail) form.append("pageField[email]", params.customerEmail);
-
-  const resp = await fetch(`${growBase}/createPaymentProcess`, {
-    method: "POST",
-    body: form,
-  });
-
-  const data = (await resp.json()) as any;
-  const paymentUrl = extractGrowPaymentUrl(data);
-  if (!paymentUrl) {
-    const growErr = growApiErrorMessage(data) ?? "Grow did not return payment URL";
-    console.error("[Payments] Grow createPaymentProcess error:", data);
-    throw new Error(growErr);
-  }
-
-  const { processId, processToken } = extractGrowProcessMeta(data);
-  return { paymentUrl, processId, processToken };
-}
 
 // POST /api/payments/create — customer creates payment page for a job
 paymentsRouter.post("/create", async (c) => {
@@ -290,217 +73,52 @@ paymentsRouter.post("/create", async (c) => {
     const commission = Math.round(amount * COMMISSION_RATE);
     const backendUrl = process.env.BACKEND_URL!;
 
-    if (isMockPaymentsMode()) {
-      const token = createMockToken();
-      const paymentUrl = mockCheckoutUrl(backendUrl, token, "job");
-      const mockRef = encodeMockRef(token, "job");
-
-      await prisma.payment.upsert({
-        where: { jobId },
-        update: {
-          paymentUrl,
-          amount,
-          commissionAmount: commission,
-          netAmount: amount - commission,
-          status: "pending",
-          growTransactionCode: mockRef,
-        },
-        create: {
-          jobId,
-          amount,
-          commissionAmount: commission,
-          netAmount: amount - commission,
-          paymentUrl,
-          status: "pending",
-          growTransactionCode: mockRef,
-        },
-      });
-
-      const jobReference = formatJobReference(job.jobNumber);
-      console.log("[Payments] Mock checkout created for job", jobReference);
-      return c.json({
-        paymentUrl,
-        amount,
-        mockMode: true,
-        jobNumber: job.jobNumber,
-        jobReference,
-        description: `תיקון אופניים ${jobReference}`,
-      });
+    if (!isMockPaymentsMode()) {
+      return c.json({ error: "מערכת התשלומים טרם הוגדרה" }, 503);
     }
 
-    const jobReference = formatJobReference(job.jobNumber);
-    const provider = getActivePaymentProvider();
-
-    if (provider === "tranzila") {
-      const tranzilaPage = await createTranzilaPaymentPage({
-        amount,
-        description: `תיקון אופניים ${jobReference}`,
-        jobId,
-        entityId: jobId,
-        kind: "job",
-        customerEmail: job.customer?.email ?? undefined,
-        customerPhone: job.customer?.phone ?? undefined,
-        customerName: job.customer?.name ?? undefined,
-      });
-
-      await prisma.payment.upsert({
-        where: { jobId },
-        update: {
-          paymentUrl: tranzilaPage.paymentUrl,
-          amount,
-          commissionAmount: commission,
-          netAmount: amount - commission,
-          status: "pending",
-          growTransactionCode: encodeTranzilaRef(tranzilaPage.checkoutToken, "job"),
-        },
-        create: {
-          jobId,
-          amount,
-          commissionAmount: commission,
-          netAmount: amount - commission,
-          paymentUrl: tranzilaPage.paymentUrl,
-          status: "pending",
-          growTransactionCode: encodeTranzilaRef(tranzilaPage.checkoutToken, "job"),
-        },
-      });
-
-      return c.json({
-        paymentUrl: tranzilaPage.paymentUrl,
-        amount,
-        mockMode: false,
-        provider: "tranzila",
-        jobNumber: job.jobNumber,
-        jobReference,
-        description: `תיקון אופניים ${jobReference}`,
-      });
-    }
-
-    const growPage = await createGrowPaymentPage({
-      amount,
-      description: `תיקון אופניים ${jobReference}`,
-      cField1: jobId,
-      cField2: "job",
-      successJobId: jobId,
-      cancelJobId: jobId,
-      customerEmail: job.customer?.email ?? undefined,
-      customerPhone: job.customer?.phone ?? undefined,
-      customerName: job.customer?.name ?? undefined,
-    });
+    const token = createMockToken();
+    const paymentUrl = mockCheckoutUrl(backendUrl, token, "job");
+    const mockRef = encodeMockRef(token, "job");
 
     await prisma.payment.upsert({
       where: { jobId },
       update: {
-        paymentUrl: growPage.paymentUrl,
+        paymentUrl,
         amount,
         commissionAmount: commission,
         netAmount: amount - commission,
         status: "pending",
-        growTransactionCode: encodeGrowProcessRef(growPage.processId, growPage.processToken),
+        growTransactionCode: mockRef,
       },
       create: {
         jobId,
         amount,
         commissionAmount: commission,
         netAmount: amount - commission,
-        paymentUrl: growPage.paymentUrl,
+        paymentUrl,
         status: "pending",
-        growTransactionCode: encodeGrowProcessRef(growPage.processId, growPage.processToken),
+        growTransactionCode: mockRef,
       },
     });
 
+    const jobReference = formatJobReference(job.jobNumber);
+    console.log("[Payments] Mock checkout created for job", jobReference);
     return c.json({
-      paymentUrl: growPage.paymentUrl,
+      paymentUrl,
       amount,
-      mockMode: false,
-      provider: "grow",
+      mockMode: true,
+      provider: "mock",
       jobNumber: job.jobNumber,
       jobReference,
       description: `תיקון אופניים ${jobReference}`,
     });
   } catch (err: any) {
-    if (err.message === "GROW_NOT_CONFIGURED" || err.message === "TRANZILA_NOT_CONFIGURED") {
-      return c.json({ error: "מערכת התשלומים טרם הוגדרה" }, 503);
-    }
-    const message = typeof err?.message === "string" && err.message !== "Grow did not return payment URL"
-      ? err.message
-      : "Internal server error";
+    const message = typeof err?.message === "string" ? err.message : "Internal server error";
     console.error("[Payments] create error:", err);
     return c.json({ error: message }, 500);
   }
 });
-
-async function queryGrowPaymentProcess(processId: string, processToken?: string): Promise<{
-  valid: boolean;
-  amount?: number;
-  status?: string;
-}> {
-  try {
-    const { pageCode } = getGrowCredentials();
-    const growBase = getGrowApiBase();
-    const form = new FormData();
-    form.append("pageCode", pageCode);
-    form.append("processId", processId);
-    if (processToken) form.append("processToken", processToken);
-
-    const resp = await fetch(`${growBase}/getPaymentProcessInfo`, {
-      method: "POST",
-      body: form,
-    });
-    const data = (await resp.json()) as any;
-    const tx = data?.data ?? data;
-    const status = tx?.status ?? tx?.statusCode;
-    const amount = Number(tx?.paymentSum ?? tx?.sum ?? 0);
-    if (data?.status === 1 || data?.status === "1" || isGrowPaidStatus(status)) {
-      return { valid: true, amount, status: String(status ?? "paid") };
-    }
-    return { valid: false };
-  } catch (err) {
-    console.error("[Payments] queryGrowPaymentProcess error:", err);
-    return { valid: false };
-  }
-}
-
-// Verify webhook authenticity by calling Grow's API to confirm transaction
-async function verifyGrowTransaction(
-  transactionId: string,
-  opts?: { processId?: string; processToken?: string }
-): Promise<{
-  valid: boolean;
-  amount?: number;
-  status?: string;
-}> {
-  const { userId, pageCode } = getGrowCredentials();
-  const growBase = getGrowApiBase();
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const form = new FormData();
-      form.append("pageCode", pageCode);
-      form.append("userId", userId);
-      form.append("transactionId", transactionId);
-
-      const resp = await fetch(`${growBase}/getTransactionInfo`, {
-        method: "POST",
-        body: form,
-      });
-      const data = (await resp.json()) as any;
-
-      if (data?.status === 1 || data?.status === "1" || data?.success === true) {
-        const tx = data.data ?? data;
-        const amount = Number(tx?.paymentSum ?? tx?.sum ?? 0);
-        return { valid: true, amount, status: tx?.status ?? "approved" };
-      }
-    } catch (err) {
-      console.error("[Payments] verifyGrowTransaction attempt error:", err);
-    }
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 1000));
-  }
-
-  if (opts?.processId) {
-    return queryGrowPaymentProcess(opts.processId, opts.processToken);
-  }
-  return { valid: false };
-}
 
 async function markMainJobPaid(params: {
   jobId: string;
@@ -538,252 +156,7 @@ async function markMainJobPaid(params: {
   return true;
 }
 
-async function syncJobPaymentFromGrow(jobId: string): Promise<boolean> {
-  const payment = await prisma.payment.findUnique({ where: { jobId } });
-  if (!payment || payment.status === "completed") return false;
-
-  const { processId, processToken } = decodeGrowProcessRef(payment.growTransactionCode);
-  if (!processId) return false;
-
-  const growStatus = await queryGrowPaymentProcess(processId, processToken);
-  if (!growStatus.valid) return false;
-
-  if (growStatus.amount && Math.abs(growStatus.amount - payment.amount) > 0.01) {
-    console.error("[Payments] Success-sync amount mismatch:", {
-      jobId,
-      expected: payment.amount,
-      actual: growStatus.amount,
-    });
-    return false;
-  }
-
-  return markMainJobPaid({
-    jobId,
-    transactionId: processId,
-    paymentSum: growStatus.amount ?? payment.amount,
-  });
-}
-
-// POST /api/payments/webhook — Grow calls this after payment (no auth required)
-paymentsRouter.post("/webhook", async (c) => {
-  const rawBody = await readGrowWebhookBody(c.req.raw);
-  const payload = parseGrowWebhookPayload(rawBody);
-
-  let cField1 = payload.cField1;
-  const cField2 = payload.cField2 ?? "job";
-  const transactionId = payload.transactionId ?? payload.transactionCode;
-  const paymentSum = Number(payload.paymentSum ?? 0);
-
-  console.log("[Payments] Webhook:", {
-    cField1,
-    cField2,
-    transactionId,
-    paymentSum,
-    processId: payload.processId,
-  });
-
-  // Fallback: match pending payment by Grow process id when custom fields are absent
-  if (!cField1 && payload.processId) {
-    const pending = await prisma.payment.findFirst({
-      where: {
-        status: "pending",
-        OR: [
-          { growTransactionCode: payload.processId },
-          { growTransactionCode: { startsWith: `${payload.processId}|` } },
-        ],
-      },
-      select: { jobId: true },
-    });
-    cField1 = pending?.jobId;
-  }
-
-  if (!cField1 || !transactionId) {
-    return c.json({ error: "Missing fields" }, 400);
-  }
-
-  // S05 FIX: Verify webhook authenticity by querying Grow's API
-  // This prevents attackers from forging webhook calls to mark jobs as paid
-  const verification = await verifyGrowTransaction(transactionId, {
-    processId: payload.processId,
-    processToken: payload.processToken,
-  });
-  if (!verification.valid) {
-    console.error("[Payments] Webhook verification FAILED for txn:", transactionId);
-    return c.json({ error: "Invalid transaction" }, 401);
-  }
-
-  // Verify amount matches what was expected (anti-tampering)
-  if (verification.amount && Math.abs(verification.amount - paymentSum) > 0.01) {
-    console.error("[Payments] Amount mismatch:", { reported: paymentSum, actual: verification.amount });
-    return c.json({ error: "Amount mismatch" }, 400);
-  }
-
-  try {
-    if (cField2 === "extra") {
-      // B02 FIX: atomic claim via updateMany; only the first concurrent webhook
-      // moves status pending → paid. Subsequent calls see count=0 and exit.
-      const claim = await prisma.extraRepairRequest.updateMany({
-        where: { id: cField1, status: "pending" },
-        data: { status: "paid", growTransactionCode: transactionId, paidAt: new Date() },
-      });
-      if (claim.count === 0) {
-        // Either not found, or already processed → idempotent success
-        return c.json({ success: true, alreadyProcessed: true });
-      }
-
-      const req = await prisma.extraRepairRequest.findUnique({
-        where: { id: cField1 },
-        include: { job: { include: { technician: true } } },
-      });
-      if (!req) return c.json({ error: "Not found" }, 404);
-
-      // Verify expected amount matches (post-claim, since claim was already atomic)
-      if (Math.abs(Number(req.amount) - paymentSum) > 0.01) {
-        console.error("[Payments] Extra repair amount mismatch");
-        // Don't roll back - the payment did happen, just log discrepancy
-      }
-
-      if (req?.job?.technician?.expoPushToken) {
-        await sendPushNotification(
-          req.job.technician.expoPushToken,
-          "💳 תשלום התקבל",
-          `הלקוח שילם ₪${paymentSum} - תוכל להמשיך בתיקון`,
-          // B19 FIX: minimal data payload
-          { screen: "active-job", jobId: req.jobId }
-        );
-      }
-    } else {
-      const newlyPaid = await markMainJobPaid({
-        jobId: cField1,
-        transactionId,
-        paymentSum,
-      });
-      if (!newlyPaid) {
-        return c.json({ success: true, alreadyProcessed: true });
-      }
-    }
-
-    // Approve transaction with Grow (mandatory to close the payment loop)
-    try {
-      const { userId, pageCode } = getGrowCredentials();
-      const growBase = getGrowApiBase();
-      const approveForm = new FormData();
-      approveForm.append("pageCode", pageCode);
-      approveForm.append("userId", userId);
-      approveForm.append("transactionId", transactionId);
-      if (payload.processToken) approveForm.append("processToken", payload.processToken);
-      await fetch(`${growBase}/approveTransaction`, { method: "POST", body: approveForm });
-    } catch (err) {
-      console.error("[Payments] approveTransaction failed (non-fatal):", err);
-    }
-
-    return c.json({ success: true });
-  } catch (err) {
-    console.error("[Payments] Webhook error:", err);
-    return c.json({ error: "Internal server error" }, 500);
-  }
-});
-
-// ─── Tranzila DirectNG bridge (POST form → iframe) ─────────────────────────
-paymentsRouter.get("/tranzila/checkout", async (c) => {
-  const token = c.req.query("token") ?? "";
-  if (!token) return c.text("Invalid token", 400);
-
-  const pending = await resolveTranzilaPendingPayment(token);
-  if (!pending) return c.text("תשלום לא נמצא או שכבר בוצע", 404);
-
-  const backendUrl = process.env.BACKEND_URL!;
-  let description = "תשלום Ebikeland";
-  let customerEmail: string | undefined;
-  let customerPhone: string | undefined;
-  let customerName: string | undefined;
-
-  if (pending.kind === "job" && pending.payment?.job) {
-    description = `תיקון אופניים ${formatJobReference(pending.payment.job.jobNumber)}`;
-    const customer = await prisma.user.findUnique({ where: { id: pending.payment.job.customerId } });
-    customerEmail = customer?.email ?? undefined;
-    customerPhone = customer?.phone ?? undefined;
-    customerName = customer?.name ?? undefined;
-  } else if (pending.kind === "extra" && pending.extra) {
-    description = pending.extra.description || "תיקון נוסף";
-    const customer = await prisma.user.findUnique({ where: { id: pending.extra.job.customerId } });
-    customerEmail = customer?.email ?? undefined;
-    customerPhone = customer?.phone ?? undefined;
-    customerName = customer?.name ?? undefined;
-  }
-
-  const handshakeToken = await createTranzilaHandshakeToken({
-    amount: pending.expectedAmount,
-    entityId: pending.entityId,
-    kind: pending.kind,
-  }).catch((err) => {
-    console.warn("[Payments] Tranzila checkout handshake skipped:", err?.message ?? err);
-    return undefined;
-  });
-
-  const fields = buildTranzilaIframeFields({
-    amount: pending.expectedAmount,
-    description,
-    backendUrl,
-    jobId: pending.jobId,
-    kind: pending.kind,
-    entityId: pending.entityId,
-    checkoutToken: token,
-    customerEmail,
-    customerPhone,
-    customerName,
-    handshakeToken,
-  });
-
-  return c.html(
-    renderTranzilaBridgePage({
-      iframeUrl: getTranzilaIframeUrl(),
-      fields,
-      amount: pending.expectedAmount,
-      description,
-    })
-  );
-});
-
-paymentsRouter.post("/tranzila/notify", async (c) => {
-  const rawBody = await readTranzilaWebhookBody(c.req.raw);
-  const payload = parseTranzilaPayload(rawBody);
-
-  console.log("[Payments] Tranzila notify:", {
-    responseCode: payload.responseCode,
-    transactionId: payload.transactionId,
-    amount: payload.amount,
-    checkoutToken: payload.checkoutToken,
-    kind: payload.kind,
-    entityId: payload.entityId,
-  });
-
-  if (!isTranzilaSuccessResponse(payload.responseCode)) {
-    return c.json({ success: false, message: "Not a successful transaction" });
-  }
-  if (!payload.transactionId) {
-    return c.json({ error: "Missing transaction id" }, 400);
-  }
-
-  try {
-    const result = await processTranzilaPaymentSuccess({
-      checkoutToken: payload.checkoutToken,
-      kind: payload.kind,
-      entityId: payload.entityId,
-      transactionId: payload.transactionId,
-      amount: payload.amount,
-    });
-    if (!result.processed && !result.alreadyProcessed) {
-      return c.json({ error: "Payment not found" }, 404);
-    }
-    return c.json({ success: true, alreadyProcessed: result.alreadyProcessed ?? false });
-  } catch (err) {
-    console.error("[Payments] Tranzila notify error:", err);
-    return c.json({ error: "Internal server error" }, 500);
-  }
-});
-
-// ─── Mock payment checkout (no real Grow charge) ───────────────────────────
+// ─── Mock payment checkout (no real charge) ──────────────────────────────────
 paymentsRouter.get("/mock/checkout", async (c) => {
   const token = c.req.query("token") ?? "";
   const kind = (c.req.query("kind") === "extra" ? "extra" : "job") as "job" | "extra";
@@ -904,7 +277,7 @@ paymentsRouter.get("/mock/cancel", async (c) => {
   );
 });
 
-async function syncJobPaymentOnSuccess(c: { req: { query: (key: string) => string | undefined } }, jobId: string) {
+async function syncJobPaymentOnSuccess(jobId: string) {
   const payment = await prisma.payment.findUnique({ where: { jobId } });
   if (!payment) return;
 
@@ -914,31 +287,7 @@ async function syncJobPaymentOnSuccess(c: { req: { query: (key: string) => strin
       transactionId: payment.growTransactionCode,
       paymentSum: payment.amount,
     });
-    return;
   }
-
-  const tranzilaRef = decodeTranzilaRef(payment.growTransactionCode);
-  if (tranzilaRef) {
-    const responseCode = c.req.query("Response") ?? c.req.query("response");
-    const transactionId =
-      c.req.query("transaction_id") ??
-      c.req.query("index") ??
-      c.req.query("ConfirmationCode");
-    const amount = Number(c.req.query("sum") ?? payment.amount);
-
-    if (isTranzilaSuccessResponse(responseCode) && transactionId) {
-      await processTranzilaPaymentSuccess({
-        checkoutToken: tranzilaRef.token,
-        kind: "job",
-        entityId: jobId,
-        transactionId,
-        amount,
-      });
-    }
-    return;
-  }
-
-  await syncJobPaymentFromGrow(jobId);
 }
 
 // GET /api/payments/success — browser redirect after payment provider success
@@ -946,7 +295,7 @@ paymentsRouter.get("/success", async (c) => {
   const jobId = c.req.query("jobId") ?? "";
   if (jobId) {
     try {
-      await syncJobPaymentOnSuccess(c, jobId);
+      await syncJobPaymentOnSuccess(jobId);
     } catch (err) {
       console.error("[Payments] success-sync error:", err);
     }
@@ -963,7 +312,7 @@ h2{color:#166534;font-size:24px}p{color:#4b5563;font-size:15px}</style></head>
 </body></html>`);
 });
 
-// GET /api/payments/cancel — browser redirect after Grow cancel
+// GET /api/payments/cancel — browser redirect after payment cancel
 paymentsRouter.get("/cancel", (c) => {
   return c.html(`<!DOCTYPE html>
 <html dir="rtl"><head><meta charset="UTF-8"><title>תשלום בוטל</title>
@@ -1057,8 +406,7 @@ paymentsRouter.post("/withdrawal-request", zValidator("json", withdrawalSchema),
   }
 });
 
-// Dev-only simulate paid (for testing the full flow when GROW keys are not configured in this environment)
-// NEVER enabled when real GROW is set. Marked clearly in UI as DEV ONLY.
+// Dev-only simulate paid (for testing the full flow in mock payment mode)
 paymentsRouter.post("/simulate-paid/:jobId", async (c) => {
   if (!isMockPaymentsMode()) {
     return c.json({ error: "Simulate not available when real payment provider is configured" }, 400);
@@ -1079,7 +427,7 @@ paymentsRouter.post("/simulate-paid/:jobId", async (c) => {
     if (job.status !== "accepted") return c.json({ error: "Can only simulate after accept" }, 400);
     if (job.paymentStatus === "paid") return c.json({ error: "Already paid" }, 400);
 
-    // Mark paid (same as webhook path, without Grow)
+    // Mark paid (same as real payment completion path)
     await prisma.$transaction([
       prisma.job.update({
         where: { id: jobId },

@@ -1,24 +1,29 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Home, FileText, User } from 'lucide-react-native';
-import { useLanguageStore } from '@/lib/store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLanguageStore, useAppThemeStore } from '@/lib/store';
+import { getThemeColors } from '@/lib/theme-colors';
 
 export default function CustomerTabLayout() {
   const t = useLanguageStore((s) => s.t);
+  const insets = useSafeAreaInsets();
+  const colorScheme = useAppThemeStore((s) => s.colorScheme);
+  const colors = getThemeColors(colorScheme);
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#3B82F6',
+        tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: '#9CA3AF',
         tabBarStyle: {
-          backgroundColor: '#fff',
+          backgroundColor: colors.tabBar,
           borderTopWidth: 1,
-          borderTopColor: '#E5E7EB',
+          borderTopColor: colors.tabBarBorder,
           paddingTop: 8,
-          paddingBottom: 8,
-          height: 60,
+          paddingBottom: Math.max(insets.bottom, 8),
+          height: 56 + Math.max(insets.bottom, 8),
         },
         tabBarLabelStyle: {
           fontSize: 12,

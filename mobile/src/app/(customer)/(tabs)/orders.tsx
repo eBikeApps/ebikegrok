@@ -10,7 +10,8 @@ import { Image } from 'expo-image';
 import { format } from 'date-fns';
 import { he } from 'date-fns/locale';
 
-import { useLanguageStore, useOrdersStore } from '@/lib/store';
+import { useLanguageStore, useOrdersStore, useAppThemeStore } from '@/lib/store';
+import { getThemeColors } from '@/lib/theme-colors';
 import { Job, OrderTabOption, OrderFilterOption } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { authClient } from '@/lib/auth/auth-client';
@@ -19,14 +20,14 @@ import { parseJobCategories } from '@/lib/job-categories';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? '';
 
-const statusConfig: Record<string, { color: string; bgColor: string; icon: typeof Clock }> = {
-  pending: { color: 'text-yellow-600', bgColor: 'bg-yellow-100', icon: Clock },
-  accepted: { color: 'text-blue-600', bgColor: 'bg-blue-100', icon: Clock },
-  on_way: { color: 'text-blue-600', bgColor: 'bg-blue-100', icon: Clock },
-  arrived: { color: 'text-purple-600', bgColor: 'bg-purple-100', icon: Clock },
-  in_progress: { color: 'text-purple-600', bgColor: 'bg-purple-100', icon: Clock },
-  completed: { color: 'text-green-600', bgColor: 'bg-green-100', icon: CheckCircle },
-  cancelled: { color: 'text-red-600', bgColor: 'bg-red-100', icon: XCircle },
+const statusConfig: Record<string, { color: string; iconColor: string; bgColor: string; icon: typeof Clock }> = {
+  pending: { color: 'text-yellow-600', iconColor: '#CA8A04', bgColor: 'bg-yellow-100', icon: Clock },
+  accepted: { color: 'text-blue-600', iconColor: '#2563EB', bgColor: 'bg-blue-100', icon: Clock },
+  on_way: { color: 'text-blue-600', iconColor: '#2563EB', bgColor: 'bg-blue-100', icon: Clock },
+  arrived: { color: 'text-purple-600', iconColor: '#9333EA', bgColor: 'bg-purple-100', icon: Clock },
+  in_progress: { color: 'text-purple-600', iconColor: '#9333EA', bgColor: 'bg-purple-100', icon: Clock },
+  completed: { color: 'text-green-600', iconColor: '#16A34A', bgColor: 'bg-green-100', icon: CheckCircle },
+  cancelled: { color: 'text-red-600', iconColor: '#DC2626', bgColor: 'bg-red-100', icon: XCircle },
 };
 
 function mapDbJobToOrder(dbJob: any): Job {
@@ -77,8 +78,12 @@ export default function OrdersScreen() {
   const language = useLanguageStore((s) => s.language);
   const setOrdersStore = useOrdersStore((s) => s.setOrders);
 
+  const colorScheme = useAppThemeStore((s) => s.colorScheme);
+  const colors = getThemeColors(colorScheme);
+
   const [orders, setOrders] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [activeTab, setActiveTab] = useState<OrderTabOption>('active');
   const [filterOption, setFilterOption] = useState<OrderFilterOption>('all');
 
@@ -87,6 +92,7 @@ export default function OrdersScreen() {
       let cancelled = false;
       const fetchOrders = async () => {
         setIsLoading(true);
+        setLoadError(false);
         try {
           const result = await authClient.getSession();
           const token = (result as any)?.data?.session?.token;
@@ -94,7 +100,10 @@ export default function OrdersScreen() {
           const res = await fetch(`${BACKEND_URL}/api/jobs`, {
             headers: { Authorization: `Bearer ${token}` },
           });
-          if (!res.ok) return;
+          if (!res.ok) {
+            if (!cancelled) setLoadError(true);
+            return;
+          }
           const data = await res.json();
           if (!cancelled && Array.isArray(data?.jobs)) {
             const mapped = data.jobs.map(mapDbJobToOrder);
@@ -102,7 +111,7 @@ export default function OrdersScreen() {
             setOrdersStore(mapped);
           }
         } catch {
-          // ignore network errors silently — empty list shown
+          if (!cancelled) setLoadError(true);
         } finally {
           if (!cancelled) setIsLoading(false);
         }
@@ -191,7 +200,7 @@ export default function OrdersScreen() {
   const ChevronIcon = I18nManager.isRTL ? ChevronLeft : ChevronRight;
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       {/* Header */}
       <View className="px-4 py-4 bg-white border-b border-gray-100">
         <Text className="text-2xl font-bold text-gray-900">{t('orders')}</Text>
@@ -258,7 +267,14 @@ export default function OrdersScreen() {
       <ScrollView className="flex-1 px-4 py-4" contentContainerStyle={{ paddingBottom: 20 }}>
         {isLoading ? (
           <View className="flex-1 items-center justify-center py-20">
-            <ActivityIndicator size="large" color="#3B82F6" />
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : loadError ? (
+          <View className="flex-1 items-center justify-center py-20 px-8">
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, textAlign: 'center', marginBottom: 12 }}>{t('loadError')}</Text>
+            <Pressable onPress={() => { setIsLoading(true); setLoadError(false); }} style={{ backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 }}>
+              <Text style={{ color: '#fff', fontWeight: '600' }}>{t('retry')}</Text>
+            </Pressable>
           </View>
         ) : filteredOrders.length === 0 ? (
           <View className="flex-1 items-center justify-center py-20 px-8">
@@ -300,7 +316,7 @@ export default function OrdersScreen() {
                     <View className="flex-row items-center">
                       <View className={cn('px-3 py-1 rounded-full', config.bgColor)}>
                         <View className="flex-row items-center gap-1">
-                          <StatusIcon size={14} color={config.color.replace('text-', '')} />
+                          <StatusIcon size={14} color={config.iconColor} />
                           <Text className={cn('font-medium text-sm', config.color)}>
                             {getStatusLabel(order.status)}
                           </Text>

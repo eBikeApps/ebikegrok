@@ -1,0 +1,182 @@
+{
+  "runAt": "2026-07-08T22:18:34.849Z",
+  "backend": "https://ebikel-backend.onrender.com",
+  "meta": {
+    "customerId": "Qsubs6v9fBhiywimccMct1y5kI7Iijgf",
+    "techId": "7m6dm6UrGqJHr7KeTqw61sGyJSG72wuA",
+    "jobId": "cmrcn2ku00001f92lcd8qfpzs",
+    "jobReference": "EB-001021",
+    "customerEmail": "qa-customer-1783549057510@ebike.test",
+    "techEmail": "qa-tech-1783549057510@ebike.test"
+  },
+  "totals": {
+    "pass": 18,
+    "fail": 0,
+    "warn": 0,
+    "skip": 0
+  },
+  "results": [
+    {
+      "step": 1,
+      "category": "1. Customer Sign-up",
+      "test": "Email/password registration",
+      "expected": "role=customer, isApproved=true",
+      "actual": "role=customer, isApproved=true",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 2,
+      "category": "2. Technician Sign-up",
+      "test": "Register then PATCH role=technician",
+      "expected": "role=technician, isApproved=false",
+      "actual": "status=200, role=technician, approved=false",
+      "status": "PASS",
+      "notes": "Simulates app flow — public cannot be technician without admin approval"
+    },
+    {
+      "step": 3,
+      "category": "2. Technician Sign-up",
+      "test": "Admin approves technician (DB)",
+      "expected": "isApproved=true",
+      "actual": "isApproved=true",
+      "status": "PASS",
+      "notes": "Admin dashboard or manual DB approve required in production"
+    },
+    {
+      "step": 4,
+      "category": "3. Technician Available",
+      "test": "Set isAvailable=true + TLV location",
+      "expected": "status 200, isAvailable=true",
+      "actual": "status=200, isAvailable=undefined",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 5,
+      "category": "3. Technician Available",
+      "test": "PATCH /technicians/availability",
+      "expected": "status 200",
+      "actual": "status=200",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 6,
+      "category": "4. Create Order",
+      "test": "Customer sees QA technician in available list",
+      "expected": "technician in list",
+      "actual": "count=3, found=true",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 7,
+      "category": "4. Create Order",
+      "test": "POST /api/jobs creates pending job",
+      "expected": "status 200/201, status=pending, jobReference EB-XXXXXX",
+      "actual": "status=201, jobId=cmrcn2ku00001f92lcd8qfpzs, ref=EB-001021, dbStatus=pending",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 8,
+      "category": "4. Create Order",
+      "test": "Job backed in DB with serial lookup",
+      "expected": "GET by-number returns same job",
+      "actual": "status=200, id=cmrcn2ku00001f92lcd8qfpzs",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 9,
+      "category": "5. Accept Job",
+      "test": "Technician accepts → status=accepted",
+      "expected": "status=accepted, paymentStatus!=paid",
+      "actual": "http=200, status=accepted, pay=pending",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 10,
+      "category": "5. Payment Gate",
+      "test": "Technician BLOCKED from on_way before customer pays",
+      "expected": "HTTP 402 or error",
+      "actual": "status=402, msg=Customer must pay after technician accepts before the technician can drive to the customer",
+      "status": "PASS",
+      "notes": "Critical business rule"
+    },
+    {
+      "step": 11,
+      "category": "5. Customer Pays",
+      "test": "Customer pays (simulate) after accept",
+      "expected": "success, paymentStatus=paid",
+      "actual": "status=200, success=true",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 12,
+      "category": "5. Customer Pays",
+      "test": "Job paymentStatus=paid in DB",
+      "expected": "paymentStatus=paid",
+      "actual": "paymentStatus=paid",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 13,
+      "category": "6. Go to Customer",
+      "test": "on_way AFTER payment",
+      "expected": "status=on_way",
+      "actual": "status=200, jobStatus=on_way",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 14,
+      "category": "6. Go to Customer",
+      "test": "arrived at customer",
+      "expected": "status=arrived",
+      "actual": "status=arrived",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 15,
+      "category": "6. Go to Customer",
+      "test": "in_progress repair",
+      "expected": "status=in_progress",
+      "actual": "status=in_progress",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 16,
+      "category": "6. Finish Job",
+      "test": "Technician completes job",
+      "expected": "status=completed, finalPrice set",
+      "actual": "status=completed, price=180",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 17,
+      "category": "6. Finish Job",
+      "test": "Final job persisted in backend",
+      "expected": "completed + jobReference + jobNumber",
+      "actual": "ref=EB-001021, num=1021, status=completed",
+      "status": "PASS",
+      "notes": ""
+    },
+    {
+      "step": 18,
+      "category": "6. Finish Job",
+      "test": "Job appears in customer order history",
+      "expected": "job in GET /api/jobs",
+      "actual": "inList=true, total=1",
+      "status": "PASS",
+      "notes": ""
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import { api } from '@/lib/api/api';
 import { markActiveJobFlowFinished, shouldSkipCompletionScreen } from '@/lib/completion-flow';
 import { clearCustomerActiveJobState, fetchJobById } from '@/lib/active-job-sync';
 import { formatJobReference } from '@/lib/job-reference';
+import { gradients } from '@/lib/brand-colors';
 
 const ratingCategories: { key: keyof RatingCategories; labelKey: string }[] = [
   { key: 'professionalism', labelKey: 'professionalism' },
@@ -315,7 +316,7 @@ export default function JobCompleteScreen() {
           className={cn('rounded-2xl overflow-hidden', (rating === 0 || submitting) && 'opacity-50')}
         >
           <LinearGradient
-            colors={['#3B82F6', '#8B5CF6']}
+            colors={[...gradients.primary]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={{ paddingVertical: 16, alignItems: 'center' }}

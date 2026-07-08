@@ -5,12 +5,12 @@ export type Language = 'he' | 'en';
 export const translations = {
   he: {
     // Common
-    appName: 'E-Bike Land',
+    appName: 'eBike',
     loading: 'טוען...',
     error: 'שגיאה',
     success: 'הצלחה',
     cancel: 'ביטול',
-    confirm: 'אישור',
+    confirm: 'מאשר',
     save: 'שמור',
     delete: 'מחק',
     edit: 'ערוך',
@@ -329,8 +329,15 @@ export const translations = {
     signOutConfirmMsg: 'האם אתה בטוח שברצונך להתנתק?',
     photoUploadError: 'לא הצלחנו להעלות את התמונה. נסה שוב.',
     faqContent: 'לתמיכה, פנה אלינו במייל: support@ebikeland.com',
-    termsContent: 'מסמך תנאי השימוש יהיה זמין בקרוב.',
-    privacyContent: 'מדיניות הפרטיות תהיה זמינה בקרוב.',
+    termsContent: 'לצפייה במסמך המלא לחץ על תנאי שימוש בהגדרות.',
+    privacyContent: 'לצפייה במסמך המלא לחץ על מדיניות פרטיות בהגדרות.',
+    darkMode: 'מצב כהה',
+    lightMode: 'מצב בהיר',
+    loadError: 'לא הצלחנו לטעון. נסה שוב.',
+    selectSavedAddress: 'כתובת שמורה',
+    useSavedAddress: 'השתמש בכתובת שמורה',
+    saveAddressForLater: 'שמור כתובת לפעם הבאה',
+    selectBikeAndCategory: 'בחר סוג אופניים ולפחות קטגוריית תיקון אחת',
     deleting: 'מוחק...',
 
     // Status labels
@@ -345,12 +352,19 @@ export const translations = {
 
   en: {
     // English translations (abbreviated for brevity - same structure)
-    appName: 'Bikes Plus',
+    appName: 'eBike',
     loading: 'Loading...',
     error: 'Error',
     success: 'Success',
     cancel: 'Cancel',
     confirm: 'Confirm',
+    darkMode: 'Dark mode',
+    lightMode: 'Light mode',
+    loadError: 'Could not load. Try again.',
+    selectSavedAddress: 'Saved address',
+    useSavedAddress: 'Use saved address',
+    saveAddressForLater: 'Save address for next time',
+    selectBikeAndCategory: 'Select bike type and at least one repair category',
     save: 'Save',
     delete: 'Delete',
     edit: 'Edit',

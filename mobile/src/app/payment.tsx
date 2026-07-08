@@ -39,7 +39,7 @@ export default function PaymentScreen() {
     return () => { isMounted.current = false; };
   }, []);
 
-  // Polling fallback: if Grow's redirect URL changes, we still catch the payment
+  // Polling fallback: if the provider redirect URL changes, we still catch the payment
   useEffect(() => {
     if (state === 'success' || state === 'failed' || !jobId) return;
     const interval = setInterval(async () => {

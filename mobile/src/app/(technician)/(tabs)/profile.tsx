@@ -9,6 +9,7 @@ import {
   Bell,
   Globe,
   Shield,
+  Moon,
   MapPin,
   Wrench,
   LogOut,
@@ -25,7 +26,10 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useLanguageStore, useTechnicianStore } from '@/lib/store';
+import { useLanguageStore, useTechnicianStore, useAppThemeStore } from '@/lib/store';
+import { applyRtlForLanguage } from '@/lib/rtl';
+import { getThemeColors } from '@/lib/theme-colors';
+import * as Updates from 'expo-updates';
 import { cn } from '@/lib/cn';
 import { useSession, useSignOut, SESSION_QUERY_KEY } from '@/lib/auth/use-session';
 import { authClient } from '@/lib/auth/auth-client';
@@ -37,6 +41,9 @@ export default function TechnicianProfileScreen() {
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
   const setLanguage = useLanguageStore((s) => s.setLanguage);
+  const colorScheme = useAppThemeStore((s) => s.colorScheme);
+  const toggleColorScheme = useAppThemeStore((s) => s.toggleColorScheme);
+  const colors = getThemeColors(colorScheme);
   const { data: session } = useSession();
   const signOut = useSignOut();
   const user = session?.user;
@@ -123,9 +130,18 @@ export default function TechnicianProfileScreen() {
 
   const uploadingAvatar = uploadAvatarMutation.isPending;
 
-  const handleLanguageToggle = () => {
+  const handleLanguageToggle = async () => {
     Haptics.selectionAsync();
-    setLanguage(language === 'he' ? 'en' : 'he');
+    const next = language === 'he' ? 'en' : 'he';
+    setLanguage(next);
+    const needsReload = applyRtlForLanguage(next);
+    if (needsReload) {
+      try {
+        await Updates.reloadAsync();
+      } catch {
+        // user may restart manually
+      }
+    }
   };
 
   const saveBioMutation = useMutation({
@@ -383,7 +399,7 @@ export default function TechnicianProfileScreen() {
 
             <Pressable
               onPress={handleLanguageToggle}
-              className="flex-row items-center justify-between p-4"
+              className="flex-row items-center justify-between p-4 border-b border-gray-100"
             >
               <View className="flex-row items-center">
                 <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
@@ -396,6 +412,50 @@ export default function TechnicianProfileScreen() {
                   {language === 'he' ? 'עברית' : 'English'}
                 </Text>
               </View>
+            </Pressable>
+
+            <View className="flex-row items-center justify-between p-4 border-b border-gray-100">
+              <View className="flex-row items-center">
+                <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
+                  <Moon size={20} color="#6B7280" />
+                </View>
+                <Text className="ml-3 text-gray-800 font-medium">
+                  {colorScheme === 'dark' ? t('lightMode') : t('darkMode')}
+                </Text>
+              </View>
+              <Switch
+                value={colorScheme === 'dark'}
+                onValueChange={() => {
+                  Haptics.selectionAsync();
+                  toggleColorScheme();
+                }}
+                trackColor={{ false: '#E5E7EB', true: '#93C5FD' }}
+                thumbColor={colorScheme === 'dark' ? '#3B82F6' : '#fff'}
+              />
+            </View>
+
+            <Pressable onPress={() => router.push('/edit-profile')} className="flex-row items-center p-4 border-b border-gray-100">
+              <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
+                <Edit2 size={20} color="#6B7280" />
+              </View>
+              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('editProfile')}</Text>
+              <ChevronIcon size={20} color="#9CA3AF" />
+            </Pressable>
+
+            <Pressable onPress={() => router.push({ pathname: '/legal', params: { type: 'terms' } })} className="flex-row items-center p-4 border-b border-gray-100">
+              <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
+                <Shield size={20} color="#6B7280" />
+              </View>
+              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('termsConditions')}</Text>
+              <ChevronIcon size={20} color="#9CA3AF" />
+            </Pressable>
+
+            <Pressable onPress={() => router.push({ pathname: '/legal', params: { type: 'privacy' } })} className="flex-row items-center p-4">
+              <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
+                <Shield size={20} color="#6B7280" />
+              </View>
+              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('privacyPolicy')}</Text>
+              <ChevronIcon size={20} color="#9CA3AF" />
             </Pressable>
           </View>
         </Animated.View>
@@ -487,7 +547,7 @@ export default function TechnicianProfileScreen() {
         visible={showSignOutModal}
         title={t('signOut')}
         message={t('signOutConfirmMsg')}
-        confirmText={t('signOut')}
+        confirmText={t('confirm')}
         cancelText={t('cancel')}
         onConfirm={confirmSignOut}
         onCancel={() => setShowSignOutModal(false)}

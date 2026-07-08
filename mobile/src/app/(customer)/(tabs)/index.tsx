@@ -18,6 +18,7 @@ import {
   isTerminalJobStatus,
 } from '@/lib/active-job-sync';
 import { calculateDistance, estimateArrivalTime } from '@/lib/mock-data';
+import { gradients } from '@/lib/brand-colors';
 import { TechnicianProfile, Location as LocationType } from '@/lib/types';
 import { useSession } from '@/lib/auth/use-session';
 import { authClient } from '@/lib/auth/auth-client';
@@ -446,7 +447,13 @@ export default function CustomerHomeScreen() {
               onPress={handleViewProfile}
               style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4, flexDirection: 'row', alignItems: 'center' }}
             >
-              <Image source={{ uri: selectedTechnician.avatar_url }} style={{ width: 56, height: 56, borderRadius: 28 }} />
+              {selectedTechnician.avatar_url ? (
+                <Image source={{ uri: selectedTechnician.avatar_url }} style={{ width: 56, height: 56, borderRadius: 28 }} />
+              ) : (
+                <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: '#3B82F6', fontWeight: '700', fontSize: 22 }}>{selectedTechnician.name?.charAt(0) ?? '?'}</Text>
+                </View>
+              )}
               <View style={{ flex: 1, marginHorizontal: 12 }}>
                 <Text style={{ color: '#111827', fontWeight: '700', fontSize: 15 }}>{selectedTechnician.name}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
@@ -487,7 +494,7 @@ export default function CustomerHomeScreen() {
             style={{ opacity: 1 }}
           >
             <LinearGradient
-              colors={['#3B82F6', '#8B5CF6']}
+              colors={[...gradients.primary]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={{ borderRadius: 16, padding: 16 }}

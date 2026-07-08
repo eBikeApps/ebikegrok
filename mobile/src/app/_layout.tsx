@@ -2,11 +2,13 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme } from '@/lib/useColorScheme';
+import { useAppThemeStore } from '@/lib/store';
+import { getThemeColors } from '@/lib/theme-colors';
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { KeyboardDoneToolbar } from '@/components/KeyboardDoneToolbar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { I18nManager } from 'react-native';
 import { useEffect, useState } from 'react';
@@ -34,7 +36,8 @@ AppState.addEventListener('change', (state) => {
   focusManager.setFocused(state === 'active');
 });
 
-function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null | undefined }) {
+function RootLayoutNav() {
+  const colorScheme = useAppThemeStore((s) => s.colorScheme);
   const { data: session, isLoading } = useSession();
   const router = useRouter();
   const [rtlReady, setRtlReady] = useState(false);
@@ -88,8 +91,10 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
-        <Stack.Screen name="role-select" />
         <Stack.Screen name="technician-pending" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="legal" options={{ presentation: 'card' }} />
+        <Stack.Screen name="edit-profile" options={{ presentation: 'card' }} />
+        <Stack.Screen name="saved-addresses" options={{ presentation: 'card' }} />
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="sign-up" />
         <Stack.Screen name="(customer)" />
@@ -146,7 +151,8 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
 }
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useAppThemeStore((s) => s.colorScheme);
+  const themeColors = getThemeColors(colorScheme);
 
   return (
     <ErrorBoundary>
@@ -154,8 +160,9 @@ export default function RootLayout() {
         <GestureHandlerRootView style={{ flex: 1 }}>
           <SafeAreaProvider>
             <KeyboardProvider>
-              <StatusBar style="light" />
-              <RootLayoutNav colorScheme={colorScheme} />
+              <StatusBar style={themeColors.statusBar} />
+              <RootLayoutNav />
+              <KeyboardDoneToolbar />
             </KeyboardProvider>
           </SafeAreaProvider>
         </GestureHandlerRootView>

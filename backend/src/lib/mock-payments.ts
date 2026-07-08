@@ -1,20 +1,15 @@
 import { randomBytes } from "crypto";
-import { isTranzilaConfigured } from "./tranzila";
 
-export type PaymentProvider = "mock" | "tranzila" | "grow";
+export type PaymentProvider = "mock";
 
-/** Force mock checkout (ignores real provider keys). Set MOCK_PAYMENTS=true */
+/** Mock checkout when MOCK_PAYMENTS is enabled or no real provider is configured. */
 export function isMockPaymentsMode(): boolean {
-  return getActivePaymentProvider() === "mock";
+  const flag = (process.env.MOCK_PAYMENTS ?? "").trim().toLowerCase();
+  if (["0", "false", "no"].includes(flag)) return false;
+  return true;
 }
 
 export function getActivePaymentProvider(): PaymentProvider {
-  const flag = (process.env.MOCK_PAYMENTS ?? "").trim().toLowerCase();
-  if (["1", "true", "yes"].includes(flag)) return "mock";
-  if (isTranzilaConfigured()) return "tranzila";
-  const userId = process.env.GROW_USER_ID?.trim();
-  const pageCode = process.env.GROW_PAGE_CODE?.trim();
-  if (userId && pageCode) return "grow";
   return "mock";
 }
 

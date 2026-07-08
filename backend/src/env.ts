@@ -43,19 +43,9 @@ const envSchema = z.object({
   // Auth — set DISABLE_EMAIL_SIGNUP=true only to block public email registration
   DISABLE_EMAIL_SIGNUP: z.string().optional().default(""),
 
-  // Grow (Meshulam) payment gateway — legacy fallback
-  GROW_API_BASE: z.string().optional().default("https://secure.meshulam.co.il/api/light/server/1.0"),
-  GROW_USER_ID: z.string().optional(),
-  GROW_PAGE_CODE: z.string().optional(),
   COMMISSION_RATE: z.string().optional().default("0.10"),
 
-  // Tranzila DirectNG iframe (primary production provider)
-  TRANZILA_TERMINAL: z.string().optional().default(""),
-  TRANZILA_APP_KEY: z.string().optional().default(""),
-  TRANZILA_SECRET: z.string().optional().default(""),
-  TRANZILA_API_BASE: z.string().optional().default("https://api.tranzila.com/v2"),
-
-  // Mock payments — fake checkout page, no real charge (MOCK_PAYMENTS=true or when no provider set)
+  // Mock payments — fake checkout page, no real charge (MOCK_PAYMENTS=true by default until real provider added)
   MOCK_PAYMENTS: z.string().optional().default(""),
 
   // Google Maps (geocoding typed customer addresses)

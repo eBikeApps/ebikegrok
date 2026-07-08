@@ -13,7 +13,7 @@ model User {
   email         String        @unique
   emailVerified Boolean       @default(false)
   image         String?
-  role          String        @default("pending") // "pending" (new user), "customer", or "technician"
+  role          String        @default("customer") // "customer" or "technician" (technician set by admin only)
   isApproved    Boolean       @default(true) // false for technicians until approved; true for customers
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -27,6 +27,7 @@ model User {
 
   // Customer-specific fields
   address       String?
+  savedAddresses Json?        @default("[]")
 
   // Technician-specific fields
   phone         String?

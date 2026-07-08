@@ -15,6 +15,7 @@ import {
   MessageCircle,
   FileText,
   Shield,
+  Moon,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -28,7 +29,8 @@ import { Image } from 'expo-image';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as Updates from 'expo-updates';
-import { useLanguageStore } from '@/lib/store';
+import { useLanguageStore, useAppThemeStore } from '@/lib/store';
+import { getThemeColors } from '@/lib/theme-colors';
 import { applyRtlForLanguage } from '@/lib/rtl';
 import { getNotificationsPreference, setNotificationsPreference } from '@/lib/push-notifications';
 import { cn } from '@/lib/cn';
@@ -52,6 +54,9 @@ export default function ProfileScreen() {
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
   const setLanguage = useLanguageStore((s) => s.setLanguage);
+  const colorScheme = useAppThemeStore((s) => s.colorScheme);
+  const toggleColorScheme = useAppThemeStore((s) => s.toggleColorScheme);
+  const colors = getThemeColors(colorScheme);
   const { data: session } = useSession();
   const signOut = useSignOut();
   const user = session?.user;
@@ -215,20 +220,22 @@ export default function ProfileScreen() {
           type: 'action',
           onPress: handleLanguageToggle,
         },
-        // TODO: implement Payment Methods screen before publishing
-        // {
-        //   icon: CreditCard,
-        //   label: t('paymentMethods'),
-        //   type: 'link',
-        //   onPress: () => {},
-        // },
-        // TODO: implement Saved Addresses screen before publishing
-        // {
-        //   icon: MapPin,
-        //   label: t('savedAddresses'),
-        //   type: 'link',
-        //   onPress: () => {},
-        // },
+        {
+          icon: MapPin,
+          label: t('savedAddresses'),
+          type: 'link',
+          onPress: () => router.push('/saved-addresses'),
+        },
+        {
+          icon: Moon,
+          label: colorScheme === 'dark' ? t('lightMode') : t('darkMode'),
+          type: 'toggle',
+          value: colorScheme === 'dark',
+          onToggle: () => {
+            Haptics.selectionAsync();
+            toggleColorScheme();
+          },
+        },
       ],
     },
     {
@@ -253,26 +260,20 @@ export default function ProfileScreen() {
           icon: FileText,
           label: t('termsConditions'),
           type: 'link',
-          onPress: () => {
-            setInfoModalContent({ title: t('termsConditions'), message: t('termsContent') });
-            setShowInfoModal(true);
-          },
+          onPress: () => router.push({ pathname: '/legal', params: { type: 'terms' } }),
         },
         {
           icon: Shield,
           label: t('privacyPolicy'),
           type: 'link',
-          onPress: () => {
-            setInfoModalContent({ title: t('privacyPolicy'), message: t('privacyContent') });
-            setShowInfoModal(true);
-          },
+          onPress: () => router.push({ pathname: '/legal', params: { type: 'privacy' } }),
         },
       ],
     },
   ];
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Header */}
         <View className="px-4 py-4 bg-white">
@@ -311,13 +312,12 @@ export default function ProfileScreen() {
             </Text>
             <Text className="mt-1 text-gray-500">{user?.email}</Text>
 
-            {/* TODO: implement Edit Profile screen before publishing — commented out to avoid broken interaction */}
-            {/* <Pressable
-              onPress={() => {}}
+            <Pressable
+              onPress={() => router.push('/edit-profile')}
               className="mt-4 px-6 py-2 bg-blue-50 rounded-full"
             >
               <Text className="text-blue-600 font-semibold">{t('editProfile')}</Text>
-            </Pressable> */}
+            </Pressable>
           </View>
         </Animated.View>
 
@@ -475,7 +475,7 @@ export default function ProfileScreen() {
         visible={showSignOutModal}
         title={t('signOut')}
         message={t('signOutConfirmMsg')}
-        confirmText={t('signOut')}
+        confirmText={t('confirm')}
         cancelText={t('cancel')}
         onConfirm={confirmSignOut}
         onCancel={() => setShowSignOutModal(false)}

@@ -385,7 +385,7 @@ export default function SignIn() {
                   textTransform: "uppercase",
                 }}
               >
-                eBike Land
+                eBike
               </Text>
             </View>
 
@@ -494,16 +494,15 @@ export default function SignIn() {
                 </Text>
               </Pressable>
 
-              <Text
-                style={{
-                  color: "rgba(255,255,255,0.35)",
-                  fontSize: 11,
-                  textAlign: "center",
-                  marginTop: 4,
-                  lineHeight: 16,
-                }}
-              >
-                בהתחברות אתה מסכים לתנאי השימוש ומדיניות הפרטיות
+              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, textAlign: "center", marginTop: 4, lineHeight: 16 }}>
+                בהתחברות אתה מסכים ל
+                <Text style={{ color: "#10b981" }} onPress={() => router.push({ pathname: "/legal", params: { type: "terms" } })}>
+                  {" "}תנאי השימוש{" "}
+                </Text>
+                ול
+                <Text style={{ color: "#10b981" }} onPress={() => router.push({ pathname: "/legal", params: { type: "privacy" } })}>
+                  מדיניות הפרטיות
+                </Text>
               </Text>
             </Animated.View>
           </View>
@@ -514,8 +513,8 @@ export default function SignIn() {
         visible={errorModal.visible}
         title="שגיאה"
         message={errorModal.message}
+        alertOnly
         confirmText="סגור"
-        cancelText="סגור"
         onConfirm={() => setErrorModal((s) => ({ ...s, visible: false }))}
         onCancel={() => setErrorModal((s) => ({ ...s, visible: false }))}
       />

@@ -20,6 +20,7 @@ import { api } from '@/lib/api/api';
 import { useSession } from '@/lib/auth/use-session';
 import { uploadJobPhoto } from '@/lib/upload-job-photo';
 import { formatJobReference } from '@/lib/job-reference';
+import { gradients } from '@/lib/brand-colors';
 
 export default function TechnicianSelectScreen() {
   const router = useRouter();
@@ -443,7 +444,7 @@ export default function TechnicianSelectScreen() {
               className="w-full max-w-sm"
             >
               <LinearGradient
-                colors={['#3B82F6', '#8B5CF6']}
+                colors={[...gradients.primary]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={{ borderRadius: 16, paddingVertical: 16, paddingHorizontal: 24 }}
@@ -582,7 +583,7 @@ export default function TechnicianSelectScreen() {
             {/* Confirm Button */}
             <Pressable onPress={handleConfirmBooking} disabled={bookingLoading} className="mb-3">
               <LinearGradient
-                colors={['#3B82F6', '#8B5CF6']}
+                colors={[...gradients.primary]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={{ borderRadius: 16, paddingVertical: 16, alignItems: 'center' }}

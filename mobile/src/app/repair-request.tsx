@@ -49,9 +49,12 @@ import { Image } from 'expo-image';
 import { playSystemSound } from '@/lib/system-sounds';
 
 import { useLanguageStore, useRepairRequestStore } from '@/lib/store';
+import { fetchSavedAddresses, createSavedAddress } from '@/lib/saved-addresses-api';
+import { SavedAddress } from '@/lib/types';
 import { geocodeCustomerAddress } from '@/lib/geocode-address';
 import { BikeType, RepairCategory, REPAIR_CATEGORIES, PRICE_RANGES } from '@/lib/types';
 import { cn } from '@/lib/cn';
+import { gradients } from '@/lib/brand-colors';
 
 const TOTAL_STEPS = 4;
 
@@ -100,6 +103,12 @@ export default function RepairRequestScreen() {
   const [availableStreets, setAvailableStreets] = useState<string[]>([]);
   const [streetsLoading, setStreetsLoading] = useState(false);
   const [geocodingAddress, setGeocodingAddress] = useState(false);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchSavedAddresses().then(setSavedAddresses).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!customerCity) {
@@ -169,6 +178,28 @@ export default function RepairRequestScreen() {
         return false;
       }
       setCustomerLocation(location);
+      const exists = savedAddresses.some(
+        (a) =>
+          a.city === customerCity &&
+          a.street === customerStreet &&
+          a.houseNumber === customerHouseNumber
+      );
+      if (!exists) {
+        try {
+          const updated = await createSavedAddress({
+            label: savedAddresses.length === 0 ? 'בית' : `כתובת ${savedAddresses.length + 1}`,
+            city: customerCity,
+            street: customerStreet,
+            houseNumber: customerHouseNumber,
+            latitude: location.latitude,
+            longitude: location.longitude,
+            isDefault: savedAddresses.length === 0,
+          });
+          setSavedAddresses(updated);
+        } catch {
+          // non-blocking
+        }
+      }
       return true;
     } catch {
       playSystemSound('error');
@@ -192,6 +223,7 @@ export default function RepairRequestScreen() {
 
     if (currentStep === 2 && (!bikeType || categories.length === 0)) {
       playSystemSound('error');
+      setInfoModal({ visible: true, title: t('error'), message: t('selectBikeAndCategory') });
       return;
     }
 
@@ -586,6 +618,39 @@ export default function RepairRequestScreen() {
         {t('customerDetailsDesc')}
       </Text>
 
+      {savedAddresses.length > 0 && (
+        <View className="mb-5">
+          <Text className="text-gray-700 font-semibold mb-2 text-right">{t('useSavedAddress')}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {savedAddresses.map((addr) => (
+              <Pressable
+                key={addr.id}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setSelectedSavedId(addr.id);
+                  if (addr.city) setCustomerCity(addr.city);
+                  if (addr.street) setCustomerStreet(addr.street);
+                  if (addr.houseNumber) setCustomerHouseNumber(addr.houseNumber);
+                  if (addr.location) setCustomerLocation(addr.location);
+                  setCityError(false);
+                  setStreetError(false);
+                  setHouseNumberError(false);
+                }}
+                className={cn(
+                  'px-4 py-3 rounded-xl border',
+                  selectedSavedId === addr.id ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-gray-200'
+                )}
+              >
+                <Text className={cn('font-semibold text-sm', selectedSavedId === addr.id ? 'text-blue-600' : 'text-gray-700')}>
+                  {addr.label}
+                </Text>
+                <Text className="text-gray-500 text-xs mt-1" numberOfLines={1}>{addr.address}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* Customer Name */}
       <View className="mb-4">
         <View className="flex-row items-center gap-1 mb-2">
@@ -811,7 +876,7 @@ export default function RepairRequestScreen() {
           className={cn('rounded-2xl overflow-hidden', (!canProceed() || geocodingAddress) && 'opacity-50')}
         >
           <LinearGradient
-            colors={['#3B82F6', '#8B5CF6']}
+            colors={[...gradients.primary]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={{ paddingVertical: 16, alignItems: 'center' }}

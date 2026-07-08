@@ -88,9 +88,7 @@ export default function TechnicianJobsScreen() {
 
   const handleJobPress = (job: Job) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (['accepted', 'on_way', 'arrived', 'in_progress'].includes(job.status)) {
-      router.push({ pathname: '/(technician)/active-job', params: { id: job.id } });
-    }
+    router.push({ pathname: '/(technician)/active-job', params: { id: job.id } });
   };
 
   const getStatusBadge = (status: Job['status']) => {
@@ -162,11 +160,7 @@ export default function TechnicianJobsScreen() {
               <Animated.View key={job.id} entering={FadeInUp.delay(index * 80).duration(400)}>
                 <Pressable
                   onPress={() => handleJobPress(job)}
-                  disabled={!isActive}
-                  className={cn(
-                    'bg-white rounded-2xl p-4 mb-3 shadow-sm shadow-black/5',
-                    isActive && 'active:opacity-90'
-                  )}
+                  className="bg-white rounded-2xl p-4 mb-3 shadow-sm shadow-black/5 active:opacity-90"
                 >
                   <View className="flex-row items-center justify-between mb-3">
                     <View className={cn('px-3 py-1 rounded-full', statusBadge.bg)}>
