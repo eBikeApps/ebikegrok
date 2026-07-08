@@ -1,11 +1,16 @@
 import { z } from "zod";
+import { REPAIR_CATEGORY_KEYS } from "./repair-pricing";
 
-export const createJobSchema = z.object({
+const createJobBaseSchema = z.object({
   technicianId: z.string().optional(),
   photoUrl: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
   description: z.string().max(1000).optional(),
+  problemDescription: z.string().max(500).optional(),
   bikeType: z.enum(["regular", "electric"]),
-  category: z.string().min(1).max(500),
+  /** Comma-separated legacy field — server also accepts `categories` array */
+  category: z.string().max(500).optional(),
+  categories: z.array(z.enum(REPAIR_CATEGORY_KEYS)).min(1).max(10).optional(),
+  /** Ignored if sent — server computes authoritative pricing */
   estimatedPriceMin: z.number().min(0).max(50000).optional(),
   estimatedPriceMax: z.number().min(0).max(50000).optional(),
   customerLocationLat: z.number().min(-90).max(90),
@@ -15,4 +20,9 @@ export const createJobSchema = z.object({
   customerPhone: z.string().min(7).max(20).optional(),
 });
 
-export type CreateJobInput = z.infer<typeof createJobSchema>;
+export const createJobSchema = createJobBaseSchema.refine(
+  (data) => (data.categories?.length ?? 0) > 0 || !!data.category?.trim(),
+  { message: "At least one repair category is required" }
+);
+
+export type CreateJobInput = z.infer<typeof createJobBaseSchema>;

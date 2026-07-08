@@ -95,6 +95,7 @@ function RootLayoutNav() {
         <Stack.Screen name="legal" options={{ presentation: 'card' }} />
         <Stack.Screen name="edit-profile" options={{ presentation: 'card' }} />
         <Stack.Screen name="saved-addresses" options={{ presentation: 'card' }} />
+        <Stack.Screen name="welcome" options={{ gestureEnabled: false }} />
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="sign-up" />
         <Stack.Screen name="(customer)" />

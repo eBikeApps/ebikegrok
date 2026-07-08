@@ -357,7 +357,10 @@ lsof -ti:8081 | xargs kill -9; npx expo start --ios --clear
 - **Grow:** **הוסר לחלוטין** מהפרויקט ומ-Render (2026-07-07)
 - **Tranzila:** **הוסר לחלוטין** מהפרויקט (2026-07-07) — סירבו לסליקה
 - **ספק תשלומים נוכחי:** רק **Mock** (`mock-payments.ts`) עד חיבור PayPlus/אחר
-- **Render env שנמחקו:** `GROW_*` (Grow), אין `TRANZILA_*` ב-Render
+- **Render:** `MOCK_PAYMENTS=true` (2026-07-08), deploy `0c34368`, version `2026-07-07-no-tranzila-v1`
+- **eas.json production:** `EXPO_PUBLIC_MOCK_PAYMENTS=true` (לbuild עתידי — לא נבנה עדיין)
+- **prisma db push:** רץ ב-`render-build.sh` — DB מסונכרן (`savedAddresses` קיים)
+- **Git:** הכל committed + pushed ל-`eBikeApps/ebikegrok` main
 
 ### מחר — צעדים (בסדר)
 1. **הרשמה ב-Tranzila** — קבל terminal name (+ אופציונלי App Key + Secret ל-handshake API)

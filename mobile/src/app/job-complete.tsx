@@ -17,6 +17,7 @@ import { markActiveJobFlowFinished, shouldSkipCompletionScreen } from '@/lib/com
 import { clearCustomerActiveJobState, fetchJobById } from '@/lib/active-job-sync';
 import { formatJobReference } from '@/lib/job-reference';
 import { gradients } from '@/lib/brand-colors';
+import { RequireAuth } from '@/components/RequireAuth';
 
 const ratingCategories: { key: keyof RatingCategories; labelKey: string }[] = [
   { key: 'professionalism', labelKey: 'professionalism' },
@@ -25,7 +26,7 @@ const ratingCategories: { key: keyof RatingCategories; labelKey: string }[] = [
   { key: 'fair_price', labelKey: 'fairPrice' },
 ];
 
-export default function JobCompleteScreen() {
+function JobCompleteScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
   const t = useLanguageStore((s) => s.t);
@@ -332,5 +333,13 @@ export default function JobCompleteScreen() {
         </Pressable>
       </View>
     </SafeAreaView>
+  );
+}
+
+export default function JobCompleteRoute() {
+  return (
+    <RequireAuth>
+      <JobCompleteScreen />
+    </RequireAuth>
   );
 }

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSession } from '@/lib/auth/use-session';
 import { Redirect } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api/api';
+import { hasSeenWelcome } from '@/lib/welcome-storage';
 
 type MeResponse = {
   user: {
@@ -14,6 +15,21 @@ type MeResponse = {
 
 export default function Index() {
   const { data: session, isLoading: sessionLoading } = useSession();
+  const [welcomeChecked, setWelcomeChecked] = useState(false);
+  const [seenWelcome, setSeenWelcome] = useState(true);
+
+  useEffect(() => {
+    if (session?.user) {
+      setWelcomeChecked(true);
+      return;
+    }
+    hasSeenWelcome()
+      .then((seen) => {
+        setSeenWelcome(seen);
+        setWelcomeChecked(true);
+      })
+      .catch(() => setWelcomeChecked(true));
+  }, [session?.user]);
 
   const { data: meData, isLoading: meLoading } = useQuery({
     queryKey: ['me'],
@@ -22,7 +38,7 @@ export default function Index() {
     staleTime: 1000 * 60 * 5,
   });
 
-  if (sessionLoading || (session?.user && meLoading)) {
+  if (sessionLoading || !welcomeChecked || (session?.user && meLoading)) {
     return null;
   }
 
@@ -40,5 +56,5 @@ export default function Index() {
     return <Redirect href="/(customer)/(tabs)" />;
   }
 
-  return <Redirect href="/sign-in" />;
+  return <Redirect href={seenWelcome ? '/sign-in' : '/welcome'} />;
 }

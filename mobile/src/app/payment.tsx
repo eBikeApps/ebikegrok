@@ -5,6 +5,7 @@ import {
   Pressable,
   ActivityIndicator,
   Platform,
+  Alert,
 } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -14,14 +15,17 @@ import Animated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { X, ShieldCheck, CheckCircle2, XCircle, RefreshCw } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { authClient } from '@/lib/auth/auth-client';
+import { RequireAuth } from '@/components/RequireAuth';
+import { useLanguageStore } from '@/lib/store';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
 
 type PaymentState = 'loading' | 'ready' | 'processing' | 'success' | 'failed';
 
-export default function PaymentScreen() {
+function PaymentScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const t = useLanguageStore((s) => s.t);
   const { jobId, paymentUrl, amount, description } = useLocalSearchParams<{
     jobId: string;
     paymentUrl: string;
@@ -84,12 +88,26 @@ export default function PaymentScreen() {
   };
 
   const handleClose = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace('/(customer)/(tabs)');
+    if (state === 'success') {
+      if (router.canGoBack()) router.back();
+      else router.replace('/(customer)/(tabs)');
+      return;
+    }
+    Alert.alert(t('payment'), t('paymentRequiredAlert'), [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: t('close'),
+        style: 'destructive',
+        onPress: () => {
+          if (router.canGoBack()) router.back();
+          else router.replace('/(customer)/(tabs)');
+        },
+      },
+    ]);
   };
 
   const handleSuccessContinue = () => {
-    router.replace({ pathname: '/job-tracking', params: { id: jobId } });
+    router.replace({ pathname: '/job-tracking', params: { id: jobId, paid: '1' } });
   };
 
   if (state === 'success') {
@@ -312,5 +330,13 @@ export default function PaymentScreen() {
         </Animated.View>
       )}
     </View>
+  );
+}
+
+export default function PaymentRoute() {
+  return (
+    <RequireAuth>
+      <PaymentScreen />
+    </RequireAuth>
   );
 }

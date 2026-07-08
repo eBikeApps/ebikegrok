@@ -153,6 +153,7 @@ interface RepairRequestState {
   customerHouseNumber: string;
   customerLocationLat: number | null;
   customerLocationLng: number | null;
+  problemDescription: string;
 
   setStep: (step: number) => void;
   setPhotoUri: (uri: string | null) => void;
@@ -166,6 +167,7 @@ interface RepairRequestState {
   setCustomerStreet: (street: string) => void;
   setCustomerHouseNumber: (houseNumber: string) => void;
   setCustomerLocation: (location: { latitude: number; longitude: number } | null) => void;
+  setProblemDescription: (description: string) => void;
   reset: () => void;
   getRequest: () => RepairRequest | null;
 }
@@ -184,6 +186,7 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
   customerHouseNumber: '',
   customerLocationLat: null,
   customerLocationLng: null,
+  problemDescription: '',
 
   setStep: (step) => set({ currentStep: step }),
   setPhotoUri: (uri) => set({ photoUri: uri }),
@@ -245,6 +248,8 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
       customerLocationLng: location?.longitude ?? null,
     }),
 
+  setProblemDescription: (description) => set({ problemDescription: description }),
+
   reset: () =>
     set({
       currentStep: 1,
@@ -260,6 +265,7 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
       customerHouseNumber: '',
       customerLocationLat: null,
       customerLocationLng: null,
+      problemDescription: '',
     }),
 
   getRequest: () => {
@@ -277,20 +283,25 @@ export const useRepairRequestStore = create<RepairRequestState>()((set, get) => 
       totalMax += priceRange[1];
     }
 
+    const categoryLabels = state.categories.map((c) => {
+      const categoryTranslations: Record<string, string> = {
+        'front_tire_puncture': 'פנצ\'ר בגלגל קדמי',
+        'rear_tire_puncture': 'פנצ\'ר בגלגל אחורי',
+        'tire_tube_replacement': 'החלפת צמיג+פנימית',
+        'brake_issue': 'ברקסים לא עובדים',
+        'starts_no_drive': 'נדלק ולא נוסע',
+        'general_electrical': 'תקלת חשמל כללית',
+        'general_service': 'טיפול כללי',
+      };
+      return categoryTranslations[c] ?? c;
+    });
+    const baseDescription = categoryLabels.join(', ');
+    const extra = state.problemDescription.trim();
+    const description = extra ? `${baseDescription} — ${extra}` : baseDescription;
+
     return {
       photo_uri: state.photoUri,
-      description: state.categories.map((c) => {
-        const translations: Record<string, string> = {
-          'front_tire_puncture': 'פנצ\'ר בגלגל קדמי',
-          'rear_tire_puncture': 'פנצ\'ר בגלגל אחורי',
-          'tire_tube_replacement': 'החלפת צמיג+פנימית',
-          'brake_issue': 'ברקסים לא עובדים',
-          'starts_no_drive': 'נדלק ולא נוסע',
-          'general_electrical': 'תקלת חשמל כללית',
-          'general_service': 'טיפול כללי',
-        };
-        return translations[c] ?? c;
-      }).join(', '),
+      description,
       bike_type: state.bikeType,
       categories: state.categories,
       estimated_price_min: totalMin,

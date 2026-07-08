@@ -1,18 +1,18 @@
 {
-  "runAt": "2026-07-08T22:18:34.849Z",
+  "runAt": "2026-07-08T22:24:48.961Z",
   "backend": "https://ebikel-backend.onrender.com",
   "meta": {
-    "customerId": "Qsubs6v9fBhiywimccMct1y5kI7Iijgf",
-    "techId": "7m6dm6UrGqJHr7KeTqw61sGyJSG72wuA",
-    "jobId": "cmrcn2ku00001f92lcd8qfpzs",
-    "jobReference": "EB-001021",
-    "customerEmail": "qa-customer-1783549057510@ebike.test",
-    "techEmail": "qa-tech-1783549057510@ebike.test"
+    "customerId": "N4z6T4G1WKyAEOfFxJ6i58nCjjbMZ2Qb",
+    "techId": "Vl62PNkUV7xX1tQYIuZYSTMV5RgaP4zr",
+    "jobId": "",
+    "jobReference": "",
+    "customerEmail": "qa-customer-1783549460479@ebike.test",
+    "techEmail": "qa-tech-1783549460479@ebike.test"
   },
   "totals": {
-    "pass": 18,
-    "fail": 0,
-    "warn": 0,
+    "pass": 2,
+    "fail": 15,
+    "warn": 1,
     "skip": 0
   },
   "results": [
@@ -30,8 +30,8 @@
       "category": "2. Technician Sign-up",
       "test": "Register then PATCH role=technician",
       "expected": "role=technician, isApproved=false",
-      "actual": "status=200, role=technician, approved=false",
-      "status": "PASS",
+      "actual": "status=403, role=undefined, approved=undefined",
+      "status": "FAIL",
       "notes": "Simulates app flow — public cannot be technician without admin approval"
     },
     {
@@ -48,8 +48,8 @@
       "category": "3. Technician Available",
       "test": "Set isAvailable=true + TLV location",
       "expected": "status 200, isAvailable=true",
-      "actual": "status=200, isAvailable=undefined",
-      "status": "PASS",
+      "actual": "status=403, isAvailable=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -57,8 +57,8 @@
       "category": "3. Technician Available",
       "test": "PATCH /technicians/availability",
       "expected": "status 200",
-      "actual": "status=200",
-      "status": "PASS",
+      "actual": "status=403",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -66,8 +66,8 @@
       "category": "4. Create Order",
       "test": "Customer sees QA technician in available list",
       "expected": "technician in list",
-      "actual": "count=3, found=true",
-      "status": "PASS",
+      "actual": "count=3, found=false",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -75,8 +75,8 @@
       "category": "4. Create Order",
       "test": "POST /api/jobs creates pending job",
       "expected": "status 200/201, status=pending, jobReference EB-XXXXXX",
-      "actual": "status=201, jobId=cmrcn2ku00001f92lcd8qfpzs, ref=EB-001021, dbStatus=pending",
-      "status": "PASS",
+      "actual": "status=404, jobId=, ref=, dbStatus=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -84,8 +84,8 @@
       "category": "4. Create Order",
       "test": "Job backed in DB with serial lookup",
       "expected": "GET by-number returns same job",
-      "actual": "status=200, id=cmrcn2ku00001f92lcd8qfpzs",
-      "status": "PASS",
+      "actual": "status=400, id=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -93,8 +93,8 @@
       "category": "5. Accept Job",
       "test": "Technician accepts → status=accepted",
       "expected": "status=accepted, paymentStatus!=paid",
-      "actual": "http=200, status=accepted, pay=pending",
-      "status": "PASS",
+      "actual": "http=404, status=undefined, pay=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -102,8 +102,8 @@
       "category": "5. Payment Gate",
       "test": "Technician BLOCKED from on_way before customer pays",
       "expected": "HTTP 402 or error",
-      "actual": "status=402, msg=Customer must pay after technician accepts before the technician can drive to the customer",
-      "status": "PASS",
+      "actual": "status=404, msg=",
+      "status": "FAIL",
       "notes": "Critical business rule"
     },
     {
@@ -111,17 +111,17 @@
       "category": "5. Customer Pays",
       "test": "Customer pays (simulate) after accept",
       "expected": "success, paymentStatus=paid",
-      "actual": "status=200, success=true",
-      "status": "PASS",
-      "notes": ""
+      "actual": "status=404, success=undefined",
+      "status": "WARN",
+      "notes": "MOCK_PAYMENTS may be off on this backend"
     },
     {
       "step": 12,
       "category": "5. Customer Pays",
       "test": "Job paymentStatus=paid in DB",
       "expected": "paymentStatus=paid",
-      "actual": "paymentStatus=paid",
-      "status": "PASS",
+      "actual": "paymentStatus=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -129,8 +129,8 @@
       "category": "6. Go to Customer",
       "test": "on_way AFTER payment",
       "expected": "status=on_way",
-      "actual": "status=200, jobStatus=on_way",
-      "status": "PASS",
+      "actual": "status=404, jobStatus=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -138,8 +138,8 @@
       "category": "6. Go to Customer",
       "test": "arrived at customer",
       "expected": "status=arrived",
-      "actual": "status=arrived",
-      "status": "PASS",
+      "actual": "status=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -147,8 +147,8 @@
       "category": "6. Go to Customer",
       "test": "in_progress repair",
       "expected": "status=in_progress",
-      "actual": "status=in_progress",
-      "status": "PASS",
+      "actual": "status=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -156,8 +156,8 @@
       "category": "6. Finish Job",
       "test": "Technician completes job",
       "expected": "status=completed, finalPrice set",
-      "actual": "status=completed, price=180",
-      "status": "PASS",
+      "actual": "status=undefined, price=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -165,8 +165,8 @@
       "category": "6. Finish Job",
       "test": "Final job persisted in backend",
       "expected": "completed + jobReference + jobNumber",
-      "actual": "ref=EB-001021, num=1021, status=completed",
-      "status": "PASS",
+      "actual": "ref=undefined, num=undefined, status=undefined",
+      "status": "FAIL",
       "notes": ""
     },
     {
@@ -174,8 +174,8 @@
       "category": "6. Finish Job",
       "test": "Job appears in customer order history",
       "expected": "job in GET /api/jobs",
-      "actual": "inList=true, total=1",
-      "status": "PASS",
+      "actual": "inList=false, total=0",
+      "status": "FAIL",
       "notes": ""
     }
   ]

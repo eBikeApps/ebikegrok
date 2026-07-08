@@ -132,7 +132,7 @@ const emailSignupDisabled = ["1", "true", "yes"].includes(
 );
 
 // Health check endpoint (version helps verify Render deployed latest code)
-const BUILD_VERSION = "2026-07-07-no-tranzila-v1";
+const BUILD_VERSION = "2026-07-08-customer-ux-v1";
 app.get("/health", (c) => {
   const provider = getActivePaymentProvider();
   return c.json({

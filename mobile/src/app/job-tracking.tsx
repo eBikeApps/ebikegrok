@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, Pressable, Linking, Platform, StyleSheet } from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
+import { RequireAuth } from '@/components/RequireAuth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -44,11 +45,11 @@ import {
 } from '@/components/job-tracking';
 
 
-export default function JobTrackingScreen() {
+function JobTrackingScreen() {
   const router = useRouter();
   // Slice 3: Accept both 'id' (preferred) and 'jobId' (from notifs, payment returns, legacy) for robustness.
-  const rawParams = useLocalSearchParams<{ id?: string; jobId?: string }>();
-  const params = { id: rawParams.id || rawParams.jobId || '' };
+  const rawParams = useLocalSearchParams<{ id?: string; jobId?: string; paid?: string }>();
+  const params = { id: rawParams.id || rawParams.jobId || '', paid: rawParams.paid };
   const insets = useSafeAreaInsets();
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
@@ -102,6 +103,13 @@ export default function JobTrackingScreen() {
   }, [params.id]);
 
   const [entryReady, setEntryReady] = useState(false);
+
+  useEffect(() => {
+    if (params.paid === '1') {
+      paymentStatusRef.current = 'paid';
+      setPaymentStatus('paid');
+    }
+  }, [params.paid]);
 
   const goHomeAfterCompletion = useCallback(() => {
     clearCustomerActiveJobState();
@@ -228,7 +236,7 @@ export default function JobTrackingScreen() {
       return;
     }
     pollJobStatus();
-    const interval = setInterval(pollJobStatus, 3000);
+    const interval = setInterval(pollJobStatus, 2000);
     return () => clearInterval(interval);
   }, [entryReady, activeJob?.status, activeJob?.id, params.id, pollJobStatus, navigateToCompletionIfNeeded, goHomeAfterCompletion]);
 
@@ -313,7 +321,7 @@ export default function JobTrackingScreen() {
           params: {
             jobId: params.id,
             paymentUrl: result.paymentUrl,
-            amount: (result.amount || activeJob?.estimated_price_min || 0).toString(),
+            amount: (result.amount || activeJob?.estimated_price_max || activeJob?.estimated_price_min || 0).toString(),
             description:
               result.description ??
               (formatJobReference(activeJob?.job_number)
@@ -325,10 +333,24 @@ export default function JobTrackingScreen() {
         setInfoModal({ visible: true, title: 'שגיאה', message: result.error ?? 'לא ניתן לפתוח דף תשלום. אנא נסה שנית.' });
       }
     } catch (e: any) {
+      const status = e?.status;
       const msg = e?.message || '';
+      if (status === 409) {
+        const jobStatus = activeJob?.status;
+        const conflictMessage =
+          jobStatus === 'pending'
+            ? t('waitingForTechnician')
+            : jobStatus === 'accepted'
+              ? t('waitingForPayment')
+              : msg || (isRTL ? 'לא ניתן ליצור תשלום כרגע. נסה שוב.' : 'Cannot create payment right now. Try again.');
+        setInfoModal({ visible: true, title: t('error'), message: conflictMessage });
+        return;
+      }
       const mockEnabled = process.env.EXPO_PUBLIC_MOCK_PAYMENTS === 'true';
       if (!mockEnabled && (msg.includes('טרם הוגדרה') || msg.includes('not configured'))) {
         setInfoModal({ visible: true, title: 'ספק תשלומים לא מוגדר', message: 'לא ניתן ליצור דף תשלום. הפעל MOCK_PAYMENTS בשרת לבדיקות.' });
+      } else if (activeJob?.status === 'pending') {
+        setInfoModal({ visible: true, title: t('error'), message: t('waitingForTechnician') });
       } else {
         setInfoModal({ visible: true, title: 'שגיאה', message: msg || 'לא ניתן ליצור דף תשלום. אנא נסה שנית.' });
       }
@@ -371,8 +393,13 @@ export default function JobTrackingScreen() {
         in_progress_at: new Date().toISOString(),
         completed_at: undefined,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error confirming arrival:', error);
+      setInfoModal({
+        visible: true,
+        title: t('error'),
+        message: error?.message || (isRTL ? 'לא הצלחנו לאשר את ההגעה. נסה שוב.' : 'Could not confirm arrival. Please try again.'),
+      });
     } finally {
       setIsConfirming(false);
     }
@@ -471,7 +498,7 @@ export default function JobTrackingScreen() {
       <>
         <PaymentRequiredScreen
           technician={activeJob.technician}
-          amount={activeJob.estimated_price_min}
+          totalPrice={activeJob.estimated_price_max ?? activeJob.estimated_price_min ?? 0}
           onPayNow={handlePayNow}
           onCancel={handleCancel}
           onSimulatePay={enableDevSimulate ? handleSimulatePay : undefined}
@@ -483,7 +510,7 @@ export default function JobTrackingScreen() {
   }
 
   const techLocation = technicianLocation ?? activeJob.technician_location;
-  const canCancel = paymentStatus !== 'paid' && ['accepted', 'on_way'].includes(activeJob.status);
+  const canCancel = paymentStatus !== 'paid';
   const currentIndex = getCurrentStepIndex();
   const showETA = eta > 0 && activeJob.status !== 'arrived' && activeJob.status !== 'in_progress';
 
@@ -752,6 +779,14 @@ export default function JobTrackingScreen() {
 
       {cancelModals}
     </View>
+  );
+}
+
+export default function JobTrackingRoute() {
+  return (
+    <RequireAuth>
+      <JobTrackingScreen />
+    </RequireAuth>
   );
 }
 

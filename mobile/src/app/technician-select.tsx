@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, Text, Pressable, ScrollView, I18nManager, ActivityIndicator, Linking, RefreshControl } from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
+import { RequireAuth } from '@/components/RequireAuth';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -22,12 +23,13 @@ import { uploadJobPhoto } from '@/lib/upload-job-photo';
 import { formatJobReference } from '@/lib/job-reference';
 import { gradients } from '@/lib/brand-colors';
 
-export default function TechnicianSelectScreen() {
+function TechnicianSelectScreen() {
   const router = useRouter();
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const getRequest = useRepairRequestStore((s) => s.getRequest);
+  const problemDescription = useRepairRequestStore((s) => s.problemDescription);
   const customerName = useRepairRequestStore((s) => s.customerName);
   const customerPhone = useRepairRequestStore((s) => s.customerPhone);
   const customerEmail = useRepairRequestStore((s) => s.customerEmail);
@@ -152,32 +154,17 @@ export default function TechnicianSelectScreen() {
         return;
       }
 
-      // Upload to Supabase Storage (persistent URL for technician)
+      // Upload photo only when provided — failure is non-blocking (photo is optional)
       let photoUrl: string | null = null;
       if (request.photo_uri) {
         try {
           photoUrl = await uploadJobPhoto(request.photo_uri, customerId);
         } catch (err: any) {
           if (err?.message === 'PHOTO_TOO_LARGE') {
-            setInfoModal({
-              visible: true,
-              title: t('error'),
-              message: language === 'he' ? 'התמונה גדולה מדי (מקס 5MB)' : 'Photo too large (max 5MB)',
-              onConfirm: undefined,
-            });
-            return;
+            console.warn('[Booking] Photo too large, continuing without photo');
+          } else {
+            console.warn('[Booking] Photo upload failed, continuing without photo:', err);
           }
-        }
-        if (!photoUrl) {
-          setInfoModal({
-            visible: true,
-            title: t('error'),
-            message: language === 'he'
-              ? 'העלאת התמונה נכשלה. בדוק חיבור לאינטרנט ונסה שוב.'
-              : 'Photo upload failed. Check your connection and try again.',
-            onConfirm: undefined,
-          });
-          return;
         }
       }
 
@@ -190,10 +177,9 @@ export default function TechnicianSelectScreen() {
         technicianId: selectedTechnician.id,
         ...(photoUrl ? { photoUrl } : {}),
         description: request.description,
+        problemDescription: problemDescription?.trim() || undefined,
         bikeType: request.bike_type,
-        category: request.categories.join(', '),
-        estimatedPriceMin: request.estimated_price_min,
-        estimatedPriceMax: request.estimated_price_max,
+        categories: request.categories,
         customerLocationLat: addressLocation.latitude,
         customerLocationLng: addressLocation.longitude,
         customerAddress: customerAddress || undefined,
@@ -233,30 +219,26 @@ export default function TechnicianSelectScreen() {
       reset();
 
       setShowConfirmModal(false);
-      const jobRef = formatJobReference(newJob.job_number);
-      if (jobRef) {
-        setInfoModal({
-          visible: true,
-          title: language === 'he' ? 'ההזמנה נוצרה' : 'Order created',
-          message:
-            language === 'he'
-              ? `מספר הזמנה: ${jobRef}\n\nמעביר אותך למעקב ההזמנה.`
-              : `Order reference: ${jobRef}\n\nTaking you to order tracking.`,
-          onConfirm: () => {
-            router.replace({ pathname: '/job-tracking', params: { id: newJob.id } });
-          },
-        });
-      } else {
+      setTimeout(() => {
         router.replace({ pathname: '/job-tracking', params: { id: newJob.id } });
-      }
+      }, 1200);
     } catch (error: any) {
       console.error('Error creating job:', error);
       if (error?.status === 409 || (error?.message && (error.message.includes('409') || error.message.includes('הזמנה פעילה') || error.message.includes('active order')))) {
         const activeJobId = error?.data?.activeJobId;
+        const activeJobStatus = error?.data?.activeJobStatus as string | undefined;
+        const statusMessage =
+          activeJobStatus === 'pending'
+            ? t('waitingForTechnician')
+            : activeJobStatus === 'accepted'
+              ? t('waitingForPayment')
+              : language === 'he'
+                ? 'יש לך הזמנה פעילה. מועבר למעקב.'
+                : 'You already have an active order. Redirecting to tracking.';
         setInfoModal({
           visible: true,
           title: language === 'he' ? 'הזמנה פעילה קיימת' : 'Active Order Exists',
-          message: language === 'he' ? 'יש לך הזמנה פעילה. מועבר לדף התשלום שלה.' : 'You already have an active order. Redirecting to its payment page.',
+          message: statusMessage,
           onConfirm: () => {
             if (activeJobId) {
               router.replace({ pathname: '/job-tracking', params: { id: activeJobId } });
@@ -330,6 +312,9 @@ export default function TechnicianSelectScreen() {
     }
   };
 
+  const repairRequest = getRequest();
+  const jobTotal = repairRequest?.estimated_price_max ?? null;
+
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
       {/* Header */}
@@ -343,6 +328,14 @@ export default function TechnicianSelectScreen() {
         <Text className="text-lg font-bold text-gray-900">{t('selectTechnician')}</Text>
         <View className="w-10" />
       </View>
+
+      {jobTotal != null && (
+        <View className="bg-blue-50 px-4 py-3 border-b border-blue-100">
+          <Text className="text-blue-800 font-bold text-center text-base">
+            {t('repairTotal')}: ₪{jobTotal}
+          </Text>
+        </View>
+      )}
 
       {/* Mini Map */}
       {effectiveLocation && (
@@ -508,16 +501,10 @@ export default function TechnicianSelectScreen() {
                     <View className="flex-row items-center">
                       <Clock size={14} color="#10B981" />
                       <Text className="text-green-600 text-sm ml-1 font-medium">
-                        {tech.eta} {t('minutes')}
+                        {t('arrivalTime')}: {tech.eta} {t('minutes')}
                       </Text>
                     </View>
                   </View>
-                </View>
-
-                {/* Price */}
-                <View className="items-end">
-                  <Text className="text-gray-400 text-xs">{t('basePrice')}</Text>
-                  <Text className="text-gray-900 font-bold text-lg">₪{tech.base_price}</Text>
                 </View>
               </View>
 
@@ -574,7 +561,7 @@ export default function TechnicianSelectScreen() {
                 <View className="flex-row items-center">
                   <Clock size={16} color="#10B981" />
                   <Text className="text-green-600 font-bold ml-1">
-                    {selectedTechnician.eta} {t('minutes')}
+                    {t('arrivalTime')}: {selectedTechnician.eta} {t('minutes')}
                   </Text>
                 </View>
               </View>
@@ -621,5 +608,13 @@ export default function TechnicianSelectScreen() {
         onCancel={() => setInfoModal((s) => ({ ...s, visible: false }))}
       />
     </SafeAreaView>
+  );
+}
+
+export default function TechnicianSelectRoute() {
+  return (
+    <RequireAuth>
+      <TechnicianSelectScreen />
+    </RequireAuth>
   );
 }

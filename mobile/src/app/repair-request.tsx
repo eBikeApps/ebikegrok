@@ -1,6 +1,9 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { View, Text, Pressable, TextInput, ScrollView, I18nManager, Modal, FlatList } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import ConfirmModal from '@/components/ConfirmModal';
+import { RequireAuth } from '@/components/RequireAuth';
+import { WizardProgress } from '@/components/WizardProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -49,6 +52,8 @@ import { Image } from 'expo-image';
 import { playSystemSound } from '@/lib/system-sounds';
 
 import { useLanguageStore, useRepairRequestStore } from '@/lib/store';
+import { useSession } from '@/lib/auth/use-session';
+import { api } from '@/lib/api/api';
 import { fetchSavedAddresses, createSavedAddress } from '@/lib/saved-addresses-api';
 import { SavedAddress } from '@/lib/types';
 import { geocodeCustomerAddress } from '@/lib/geocode-address';
@@ -57,8 +62,25 @@ import { cn } from '@/lib/cn';
 import { gradients } from '@/lib/brand-colors';
 
 const TOTAL_STEPS = 4;
+const DRAFT_KEY = 'repair_request_draft';
 
-export default function RepairRequestScreen() {
+type RepairDraft = {
+  currentStep: number;
+  photoUri: string | null;
+  bikeType: BikeType | null;
+  categories: RepairCategory[];
+  problemDescription: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  customerCity: string;
+  customerStreet: string;
+  customerHouseNumber: string;
+  customerLocationLat: number | null;
+  customerLocationLng: number | null;
+};
+
+function RepairRequestScreen() {
   const router = useRouter();
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
@@ -73,6 +95,7 @@ export default function RepairRequestScreen() {
   const customerCity = useRepairRequestStore((s) => s.customerCity);
   const customerStreet = useRepairRequestStore((s) => s.customerStreet);
   const customerHouseNumber = useRepairRequestStore((s) => s.customerHouseNumber);
+  const problemDescription = useRepairRequestStore((s) => s.problemDescription);
 
   const setStep = useRepairRequestStore((s) => s.setStep);
   const setPhotoUri = useRepairRequestStore((s) => s.setPhotoUri);
@@ -85,8 +108,11 @@ export default function RepairRequestScreen() {
   const setCustomerStreet = useRepairRequestStore((s) => s.setCustomerStreet);
   const setCustomerHouseNumber = useRepairRequestStore((s) => s.setCustomerHouseNumber);
   const setCustomerLocation = useRepairRequestStore((s) => s.setCustomerLocation);
+  const setProblemDescription = useRepairRequestStore((s) => s.setProblemDescription);
   const reset = useRepairRequestStore((s) => s.reset);
 
+  const { data: session } = useSession();
+  const draftRestored = useRef(false);
   const [nameError, setNameError] = useState(false);
   const [phoneError, setPhoneError] = useState(false);
   const [emailError, setEmailError] = useState(false);
@@ -109,6 +135,86 @@ export default function RepairRequestScreen() {
   useEffect(() => {
     fetchSavedAddresses().then(setSavedAddresses).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (draftRestored.current) return;
+    draftRestored.current = true;
+    AsyncStorage.getItem(DRAFT_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const draft = JSON.parse(raw) as RepairDraft;
+        if (draft.currentStep) setStep(draft.currentStep);
+        if (draft.photoUri !== undefined) setPhotoUri(draft.photoUri);
+        if (draft.bikeType) setBikeType(draft.bikeType);
+        if (draft.categories?.length) {
+          draft.categories.forEach((cat) => {
+            if (!useRepairRequestStore.getState().categories.includes(cat)) {
+              useRepairRequestStore.getState().toggleCategory(cat);
+            }
+          });
+        }
+        if (draft.problemDescription) setProblemDescription(draft.problemDescription);
+        if (draft.customerName) setCustomerName(draft.customerName);
+        if (draft.customerPhone) setCustomerPhone(draft.customerPhone);
+        if (draft.customerEmail) setCustomerEmail(draft.customerEmail);
+        if (draft.customerCity) setCustomerCity(draft.customerCity);
+        if (draft.customerStreet) setCustomerStreet(draft.customerStreet);
+        if (draft.customerHouseNumber) setCustomerHouseNumber(draft.customerHouseNumber);
+        if (draft.customerLocationLat != null && draft.customerLocationLng != null) {
+          setCustomerLocation({ latitude: draft.customerLocationLat, longitude: draft.customerLocationLng });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!session?.user) return;
+    const state = useRepairRequestStore.getState();
+    if (!state.customerName.trim() && session.user.name) {
+      setCustomerName(session.user.name);
+    }
+    if (!state.customerEmail.trim() && session.user.email) {
+      setCustomerEmail(session.user.email);
+    }
+    api.get<{ user: { phone?: string } }>('/api/me')
+      .then((me) => {
+        if (!useRepairRequestStore.getState().customerPhone.trim() && me.user?.phone) {
+          setCustomerPhone(me.user.phone.replace(/\D/g, '').slice(0, 10));
+        }
+      })
+      .catch(() => {});
+  }, [session?.user]);
+
+  useEffect(() => {
+    const draft: RepairDraft = {
+      currentStep,
+      photoUri,
+      bikeType,
+      categories,
+      problemDescription,
+      customerName,
+      customerPhone,
+      customerEmail,
+      customerCity,
+      customerStreet,
+      customerHouseNumber,
+      customerLocationLat: useRepairRequestStore.getState().customerLocationLat,
+      customerLocationLng: useRepairRequestStore.getState().customerLocationLng,
+    };
+    AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
+  }, [
+    currentStep,
+    photoUri,
+    bikeType,
+    categories,
+    problemDescription,
+    customerName,
+    customerPhone,
+    customerEmail,
+    customerCity,
+    customerStreet,
+    customerHouseNumber,
+  ]);
 
   useEffect(() => {
     if (!customerCity) {
@@ -214,13 +320,13 @@ export default function RepairRequestScreen() {
     }
   };
 
-  const handleNext = async () => {
-    if (currentStep === 1 && !photoUri) {
-      playSystemSound('error');
-      setInfoModal({ visible: true, title: t('error'), message: t('photoRequired') });
-      return;
-    }
+  const handleSkipPhoto = () => {
+    Haptics.selectionAsync();
+    playSystemSound('click');
+    setStep(2);
+  };
 
+  const handleNext = async () => {
     if (currentStep === 2 && (!bikeType || categories.length === 0)) {
       playSystemSound('error');
       setInfoModal({ visible: true, title: t('error'), message: t('selectBikeAndCategory') });
@@ -278,6 +384,7 @@ export default function RepairRequestScreen() {
       setStep(currentStep + 1);
     } else {
       playSystemSound('swoosh');
+      AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
       router.push('/technician-select');
     }
   };
@@ -334,7 +441,7 @@ export default function RepairRequestScreen() {
   const canProceed = (): boolean => {
     switch (currentStep) {
       case 1:
-        return !!photoUri;
+        return true;
       case 2:
         return !!bikeType && categories.length > 0;
       case 3:
@@ -352,20 +459,6 @@ export default function RepairRequestScreen() {
     }
   };
 
-  const renderStepIndicator = () => (
-    <View className="flex-row items-center justify-center py-4 gap-2">
-      {Array.from({ length: TOTAL_STEPS }).map((_, index) => (
-        <View
-          key={index}
-          className={cn(
-            'h-2 rounded-full transition-all',
-            index < currentStep ? 'bg-blue-500 w-8' : 'bg-gray-200 w-2'
-          )}
-        />
-      ))}
-    </View>
-  );
-
   const renderStep1 = () => (
     <Animated.View
       entering={FadeIn.duration(300)}
@@ -377,8 +470,8 @@ export default function RepairRequestScreen() {
       </Text>
       <Text className="text-gray-500 text-center mb-6">
         {language === 'he'
-          ? 'צלם או העלה תמונה של התקלה כדי שהטכנאי יוכל להתכונן'
-          : 'Take or upload a photo of the issue so the technician can prepare'}
+          ? 'צלם או העלה תמונה של התקלה (אופציונלי) — או דלג והמשך'
+          : 'Take or upload a photo (optional) — or skip and continue'}
       </Text>
 
       {photoUri ? (
@@ -618,6 +711,23 @@ export default function RepairRequestScreen() {
         {t('customerDetailsDesc')}
       </Text>
 
+      <View className="mb-5">
+        <Text className="text-gray-700 font-semibold mb-2 text-right">{t('problemDescription')}</Text>
+        <View className="bg-gray-50 rounded-xl p-4 border-2 border-transparent">
+          <TextInput
+            value={problemDescription}
+            onChangeText={setProblemDescription}
+            placeholder={t('problemDescriptionPlaceholder')}
+            placeholderTextColor="#9CA3AF"
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+            style={{ textAlign: 'right', minHeight: 80 }}
+            className="text-gray-900 text-base"
+          />
+        </View>
+      </View>
+
       {savedAddresses.length > 0 && (
         <View className="mb-5">
           <Text className="text-gray-700 font-semibold mb-2 text-right">{t('useSavedAddress')}</Text>
@@ -853,8 +963,11 @@ export default function RepairRequestScreen() {
         <View className="w-10" />
       </View>
 
-      {/* Step Indicator */}
-      {renderStepIndicator()}
+      <WizardProgress
+        current={currentStep}
+        total={TOTAL_STEPS}
+        label={`${t('step')} ${currentStep} ${t('of')} ${TOTAL_STEPS}`}
+      />
 
       {/* Step Content */}
       <ScrollView
@@ -870,6 +983,11 @@ export default function RepairRequestScreen() {
 
       {/* Bottom Button */}
       <View className="px-6 pb-6 pt-4">
+        {currentStep === 1 && (
+          <Pressable onPress={handleSkipPhoto} className="mb-3 py-3 items-center">
+            <Text className="text-gray-500 font-semibold text-base">{t('skipPhoto')}</Text>
+          </Pressable>
+        )}
         <Pressable
           onPress={handleNext}
           disabled={!canProceed() || geocodingAddress}
@@ -1095,5 +1213,13 @@ export default function RepairRequestScreen() {
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+export default function RepairRequestRoute() {
+  return (
+    <RequireAuth>
+      <RepairRequestScreen />
+    </RequireAuth>
   );
 }

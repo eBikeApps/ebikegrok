@@ -6,24 +6,26 @@ import Animated, { FadeInUp, useSharedValue, useAnimatedStyle, withSpring } from
 import { Check } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { brand, gradients } from '@/lib/brand-colors';
+import { useLanguageStore } from '@/lib/store';
 import { DotLoader } from './DotLoader';
 
 export function PaymentRequiredScreen({
   technician,
-  amount,
+  totalPrice,
   onPayNow,
   onCancel,
   onSimulatePay,
   paymentLoading,
 }: {
   technician?: { name?: string; avatar_url?: string };
-  amount: number;
+  totalPrice: number;
   onPayNow: () => void;
   onCancel: () => void;
   onSimulatePay?: () => void;
   paymentLoading: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const t = useLanguageStore((s) => s.t);
   const checkScale = useSharedValue(0);
 
   useEffect(() => {
@@ -110,10 +112,12 @@ export function PaymentRequiredScreen({
             alignItems: 'center',
           }}
         >
-          <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 8 }}>סכום לתשלום</Text>
-          <Text style={{ color: brand.primaryLight, fontSize: 52, fontWeight: '900' }}>₪{amount}</Text>
+          <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 8 }}>
+            {t('paymentTotal')}: ₪{totalPrice}
+          </Text>
+          <Text style={{ color: brand.primaryLight, fontSize: 52, fontWeight: '900' }}>₪{totalPrice}</Text>
           <Text style={{ color: '#475569', fontSize: 12, marginTop: 6, textAlign: 'center' }}>
-            המחיר הסופי ייקבע לאחר הבדיקה
+            {t('fixedPriceSubtitle')}
           </Text>
         </Animated.View>
 

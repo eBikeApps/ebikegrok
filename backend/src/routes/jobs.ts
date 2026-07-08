@@ -5,6 +5,7 @@ import { prisma } from "../prisma";
 import { sendPushNotification, sendPushNotificationToMany } from "../lib/push-notifications";
 import { canCompleteJob, canProgressWithPayment, canTransitionToOnWay } from "../lib/payment-gates";
 import { createJobSchema } from "../lib/job-create-schema";
+import { computeJobPricing, parseCategoryList } from "../lib/repair-pricing";
 import { formatJobReference, withJobReference, withJobReferences } from "../lib/job-reference";
 
 const updateStatusSchema = z.object({
@@ -31,20 +32,32 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
   }
 
   try {
+    const body = c.req.valid("json");
     const {
       technicianId,
       photoUrl,
       description,
+      problemDescription,
       bikeType,
-      category,
-      estimatedPriceMin,
-      estimatedPriceMax,
       customerLocationLat,
       customerLocationLng,
       customerAddress,
       customerName,
       customerPhone,
-    } = c.req.valid("json");
+    } = body;
+
+    const categoryKeys = parseCategoryList({
+      categories: body.categories,
+      category: body.category,
+    });
+    if (categoryKeys.length === 0) {
+      return c.json({ message: "יש לבחור לפחות סוג תיקון אחד" }, 400);
+    }
+
+    const pricing = computeJobPricing(bikeType, categoryKeys);
+    const estimatedPriceMin = pricing.estimatedPriceMin;
+    const estimatedPriceMax = pricing.estimatedPriceMax;
+    const category = pricing.category;
 
     if (customerName?.trim() || customerPhone?.trim()) {
       await prisma.user.update({
@@ -56,7 +69,10 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
       });
     }
 
-    const jobDescription = description || `תיקון ${bikeType === 'electric' ? 'אופניים חשמליים' : 'קורקינט'} - ${category}`;
+    const extraDetail = problemDescription?.trim() || description?.trim();
+    const jobDescription = extraDetail
+      ? `${pricing.description} — ${extraDetail}`
+      : pricing.description;
 
     // Block creating a new job if the customer already has an active one
     const existingActive = await prisma.job.findFirst({
@@ -103,8 +119,8 @@ jobsRouter.post("/", zValidator("json", createJobSchema), async (c) => {
         description: jobDescription,
         bikeType,
         category,
-        estimatedPriceMin: estimatedPriceMin || 0,
-        estimatedPriceMax: estimatedPriceMax || 0,
+        estimatedPriceMin,
+        estimatedPriceMax,
         customerLocationLat,
         customerLocationLng,
         customerAddress: customerAddress || null,

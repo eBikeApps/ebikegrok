@@ -13,7 +13,6 @@ import { Image } from 'expo-image';
 
 import { useLanguageStore, useLocationStore, useActiveJobStore } from '@/lib/store';
 import {
-  clearCustomerActiveJobState,
   fetchCustomerActiveJob,
   isTerminalJobStatus,
 } from '@/lib/active-job-sync';
@@ -151,35 +150,29 @@ export default function CustomerHomeScreen() {
   const [mapLat, setMapLat] = useState(defaultLat);
   const [mapLng, setMapLng] = useState(defaultLng);
 
-  // Check for an active job whenever the screen comes into focus.
-  // If one exists, hydrate the store and redirect to job-tracking so the customer
-  // can't accidentally create a parallel order while a technician is engaged.
+  // Check for an active job on focus — show banner instead of auto-redirect
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       const check = async () => {
-        setActiveJobId(null);
-        clearCustomerActiveJobState();
         try {
           const job = await fetchCustomerActiveJob();
           if (cancelled) return;
-          if (!job) return;
-          if (isTerminalJobStatus(job.status)) return;
+          if (!job || isTerminalJobStatus(job.status)) {
+            setActiveJobId(null);
+            return;
+          }
           setActiveJobId(job.id);
           setActiveJobInStore(job);
-          router.replace({ pathname: '/job-tracking', params: { id: job.id } });
         } catch {
-          if (!cancelled) {
-            setActiveJobId(null);
-            clearCustomerActiveJobState();
-          }
+          if (!cancelled) setActiveJobId(null);
         }
       };
       check();
       return () => {
         cancelled = true;
       };
-    }, [router, setActiveJobInStore])
+    }, [setActiveJobInStore])
   );
 
   useEffect(() => {
@@ -324,12 +317,14 @@ export default function CustomerHomeScreen() {
     fetchTechnicians();
   };
 
+  const handleGoToActiveJob = () => {
+    if (!activeJobId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push({ pathname: '/job-tracking', params: { id: activeJobId } });
+  };
+
   const handleRequestRepair = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (activeJobId) {
-      router.replace({ pathname: '/job-tracking', params: { id: activeJobId } });
-      return;
-    }
     const locationPermission = useLocationStore.getState().locationPermission;
     if (locationPermission === 'denied') {
       setLocationModalForRepair(true);
@@ -405,6 +400,26 @@ export default function CustomerHomeScreen() {
             <RefreshCw size={20} color="#6B7280" />
           </Pressable>
         </View>
+
+        {activeJobId && (
+          <Pressable
+            onPress={handleGoToActiveJob}
+            style={{
+              marginHorizontal: 16,
+              marginBottom: 8,
+              backgroundColor: '#EFF6FF',
+              borderRadius: 12,
+              paddingVertical: 12,
+              paddingHorizontal: 16,
+              borderWidth: 1,
+              borderColor: '#BFDBFE',
+            }}
+          >
+            <Text style={{ color: '#1D4ED8', fontWeight: '700', fontSize: 14, textAlign: 'center' }}>
+              {t('activeJobBanner')}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       {/* Map */}
