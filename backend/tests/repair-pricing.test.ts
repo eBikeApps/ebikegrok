@@ -8,8 +8,8 @@ import {
 describe("repair pricing", () => {
   test("single category fixed price", () => {
     const result = computeJobPricing("electric", ["brake_issue"]);
-    expect(result.estimatedPriceMin).toBe(200);
-    expect(result.estimatedPriceMax).toBe(200);
+    expect(result.estimatedPriceMin).toBe(250);
+    expect(result.estimatedPriceMax).toBe(250);
   });
 
   test("multiple categories sum into one total", () => {
@@ -38,6 +38,6 @@ describe("repair pricing", () => {
   test("ignores client price tampering path — only keys matter", () => {
     const keys = parseCategoryList({ category: "brake_issue, general_service" });
     const priced = computeJobPricing("electric", keys);
-    expect(priced.estimatedPriceMin).toBe(500);
+    expect(priced.estimatedPriceMin).toBe(600);
   });
 });

@@ -19,13 +19,13 @@ export const FIXED_REPAIR_PRICES: Record<
   RepairCategoryKey,
   { regular: number; electric: number }
 > = {
-  front_tire_puncture: { regular: 200, electric: 200 },
-  rear_tire_puncture: { regular: 200, electric: 200 },
-  tire_tube_replacement: { regular: 350, electric: 350 },
-  brake_issue: { regular: 200, electric: 200 },
-  starts_no_drive: { regular: 250, electric: 250 },
-  general_electrical: { regular: 250, electric: 250 },
-  general_service: { regular: 300, electric: 300 },
+  front_tire_puncture: { regular: 250, electric: 250 },
+  rear_tire_puncture: { regular: 250, electric: 250 },
+  tire_tube_replacement: { regular: 400, electric: 400 },
+  brake_issue: { regular: 250, electric: 250 },
+  starts_no_drive: { regular: 300, electric: 300 },
+  general_electrical: { regular: 300, electric: 300 },
+  general_service: { regular: 350, electric: 350 },
 };
 
 const CATEGORY_LABELS_HE: Record<RepairCategoryKey, string> = {

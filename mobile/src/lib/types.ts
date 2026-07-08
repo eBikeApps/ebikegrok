@@ -83,13 +83,13 @@ export const REPAIR_CATEGORIES: { key: RepairCategory; labelKey: string }[] = [
 
 // Fixed prices based on category and bike type
 export const PRICE_RANGES: Record<RepairCategory, { regular: [number, number]; electric: [number, number] }> = {
-  front_tire_puncture: { regular: [200, 200], electric: [200, 200] },
-  rear_tire_puncture: { regular: [200, 200], electric: [200, 200] },
-  tire_tube_replacement: { regular: [350, 350], electric: [350, 350] },
-  brake_issue: { regular: [200, 200], electric: [200, 200] },
-  starts_no_drive: { regular: [250, 250], electric: [250, 250] },
-  general_electrical: { regular: [250, 250], electric: [250, 250] },
-  general_service: { regular: [300, 300], electric: [300, 300] },
+  front_tire_puncture: { regular: [250, 250], electric: [250, 250] },
+  rear_tire_puncture: { regular: [250, 250], electric: [250, 250] },
+  tire_tube_replacement: { regular: [400, 400], electric: [400, 400] },
+  brake_issue: { regular: [250, 250], electric: [250, 250] },
+  starts_no_drive: { regular: [300, 300], electric: [300, 300] },
+  general_electrical: { regular: [300, 300], electric: [300, 300] },
+  general_service: { regular: [350, 350], electric: [350, 350] },
 };
 
 // Job types
