@@ -14,7 +14,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { authClient } from "@/lib/auth/auth-client";
-import { SESSION_QUERY_KEY } from "@/lib/auth/use-session";
+import { refreshSessionAfterAuth } from "@/lib/auth/use-session";
 import { useQueryClient } from "@tanstack/react-query";
 import Animated, {
   useSharedValue,
@@ -68,9 +68,15 @@ export default function SignUp() {
         setErrorModal({ visible: true, message: errMsg || t("somethingWentWrong") });
       } else {
         playSystemSound("success");
-        queryClient.removeQueries({ queryKey: ["me"] });
-        await queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
-        router.replace("/");
+        const ready = await refreshSessionAfterAuth(queryClient);
+        if (ready) {
+          router.replace("/");
+        } else {
+          setErrorModal({
+            visible: true,
+            message: t("somethingWentWrong"),
+          });
+        }
       }
     } catch (err: unknown) {
       playSystemSound("error");
@@ -111,9 +117,12 @@ export default function SignUp() {
         setErrorModal({ visible: true, message: friendly });
       } else {
         playSystemSound("success");
-        queryClient.removeQueries({ queryKey: ["me"] });
-        await queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
-        router.replace("/");
+        const ready = await refreshSessionAfterAuth(queryClient);
+        if (ready) {
+          router.replace("/");
+        } else {
+          setErrorModal({ visible: true, message: t("somethingWentWrong") });
+        }
       }
     } catch (err: unknown) {
       playSystemSound("error");

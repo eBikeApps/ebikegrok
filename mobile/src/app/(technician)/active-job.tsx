@@ -1121,8 +1121,8 @@ export default function TechnicianActiveJobScreen() {
         visible={!!jobCompleteModal?.visible}
         title="העבודה הושלמה! 🎉"
         message={`התשלום של ₪${jobCompleteModal?.finalPrice ?? 0} התקבל בהצלחה`}
+        alertOnly
         confirmText="סיום"
-        cancelText="סיום"
         onConfirm={() => {
           setJobCompleteModal(null);
           if (job) removeActiveJob(job.id);
@@ -1139,8 +1139,8 @@ export default function TechnicianActiveJobScreen() {
         visible={infoModal.visible}
         title={infoModal.title}
         message={infoModal.message}
+        alertOnly
         confirmText="סגור"
-        cancelText="סגור"
         onConfirm={() => setInfoModal((s) => ({ ...s, visible: false }))}
         onCancel={() => setInfoModal((s) => ({ ...s, visible: false }))}
       />

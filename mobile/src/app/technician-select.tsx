@@ -219,9 +219,7 @@ function TechnicianSelectScreen() {
       reset();
 
       setShowConfirmModal(false);
-      setTimeout(() => {
-        router.replace({ pathname: '/job-tracking', params: { id: newJob.id } });
-      }, 1200);
+      router.replace({ pathname: '/job-tracking', params: { id: newJob.id } });
     } catch (error: any) {
       console.error('Error creating job:', error);
       if (error?.status === 409 || (error?.message && (error.message.includes('409') || error.message.includes('הזמנה פעילה') || error.message.includes('active order')))) {
@@ -239,10 +237,21 @@ function TechnicianSelectScreen() {
           visible: true,
           title: language === 'he' ? 'הזמנה פעילה קיימת' : 'Active Order Exists',
           message: statusMessage,
-          onConfirm: () => {
+          onConfirm: async () => {
             if (activeJobId) {
               router.replace({ pathname: '/job-tracking', params: { id: activeJobId } });
-            } else {
+              return;
+            }
+            try {
+              const { fetchCustomerActiveJob } = await import('@/lib/active-job-sync');
+              const existing = await fetchCustomerActiveJob();
+              if (existing?.id) {
+                setActiveJob(existing);
+                router.replace({ pathname: '/job-tracking', params: { id: existing.id } });
+              } else {
+                router.replace('/(customer)/(tabs)');
+              }
+            } catch {
               router.replace('/(customer)/(tabs)');
             }
           },
@@ -599,8 +608,9 @@ function TechnicianSelectScreen() {
         visible={infoModal.visible}
         title={infoModal.title}
         message={infoModal.message}
+        alertOnly={!infoModal.onConfirm}
         confirmText={infoModal.onConfirm ? t('confirm') : t('close')}
-        cancelText={t('close')}
+        cancelText={t('cancel')}
         onConfirm={() => {
           setInfoModal((s) => ({ ...s, visible: false }));
           infoModal.onConfirm?.();

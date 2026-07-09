@@ -17,6 +17,16 @@ type HonoEnv = { Variables: { user: any; session: any } };
 
 const paymentsRouter = new Hono<HonoEnv>();
 
+/** Public URL for checkout redirects — matches the host the app actually calls when BACKEND_URL drifts. */
+function resolvePublicBackendUrl(c: { req: { header: (name: string) => string | undefined } }): string {
+  const configured = (process.env.BACKEND_URL ?? "").replace(/\/$/, "");
+  if (configured) return configured;
+  const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
+  const proto = c.req.header("x-forwarded-proto") ?? "http";
+  if (host) return `${proto}://${host}`;
+  return "http://127.0.0.1:3001";
+}
+
 // B27 FIX: validate commission rate at startup
 const RAW_COMMISSION = Number(process.env.COMMISSION_RATE ?? "0.10");
 if (Number.isNaN(RAW_COMMISSION) || RAW_COMMISSION < 0 || RAW_COMMISSION >= 1) {
@@ -71,7 +81,7 @@ paymentsRouter.post("/create", async (c) => {
   try {
     const amount = job.finalPrice ?? job.estimatedPriceMin;
     const commission = Math.round(amount * COMMISSION_RATE);
-    const backendUrl = process.env.BACKEND_URL!;
+    const backendUrl = resolvePublicBackendUrl(c);
 
     if (!isMockPaymentsMode()) {
       return c.json({ error: "מערכת התשלומים טרם הוגדרה" }, 503);
@@ -163,7 +173,7 @@ paymentsRouter.get("/mock/checkout", async (c) => {
   if (!token) return c.text("Invalid token", 400);
 
   const ref = encodeMockRef(token, kind);
-  const backendUrl = process.env.BACKEND_URL!;
+  const backendUrl = resolvePublicBackendUrl(c);
 
   if (kind === "extra") {
     const extra = await prisma.extraRepairRequest.findFirst({
@@ -206,7 +216,7 @@ paymentsRouter.post("/mock/complete", async (c) => {
   if (!token) return c.text("Invalid token", 400);
 
   const ref = encodeMockRef(token, kind);
-  const backendUrl = process.env.BACKEND_URL!;
+  const backendUrl = resolvePublicBackendUrl(c);
 
   try {
     if (kind === "extra") {
@@ -258,7 +268,7 @@ paymentsRouter.post("/mock/complete", async (c) => {
 paymentsRouter.get("/mock/cancel", async (c) => {
   const token = c.req.query("token") ?? "";
   const kind = (c.req.query("kind") === "extra" ? "extra" : "job") as "job" | "extra";
-  const backendUrl = process.env.BACKEND_URL!;
+  const backendUrl = resolvePublicBackendUrl(c);
   let jobId = "";
 
   if (token) {

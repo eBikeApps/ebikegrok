@@ -89,8 +89,8 @@ techniciansRouter.get("/available", zValidator("query", availableQuerySchema), a
             tech.currentLocationLng!
           );
 
-          // Filter by service radius (minimum 1km)
-          if (distance > Math.max(tech.serviceRadius || 40, 1)) {
+          // Filter by service radius — platform minimum 40km so customers can discover techs
+          if (distance > Math.max(tech.serviceRadius || 40, 40)) {
             return null;
           }
 
@@ -243,7 +243,10 @@ techniciansRouter.patch("/availability", zValidator("json", updateAvailabilitySc
 
     const updatedTechnician = await prisma.user.update({
       where: { id: user.id },
-      data: { isAvailable },
+      data: {
+        isAvailable,
+        ...(isAvailable ? { lastSeenAt: new Date() } : {}),
+      },
       select: {
         id: true,
         isAvailable: true,

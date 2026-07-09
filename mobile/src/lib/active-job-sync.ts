@@ -119,6 +119,17 @@ export async function fetchJobById(jobId: string): Promise<Job | null> {
   }
 }
 
+async function fetchJobByIdWithRetry(jobId: string, attempts = 3): Promise<Job | null> {
+  for (let i = 0; i < attempts; i++) {
+    const job = await fetchJobById(jobId);
+    if (job) return job;
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+    }
+  }
+  return null;
+}
+
 export type JobEntryResolution =
   | { action: 'home' }
   | { action: 'complete'; jobId: string }
@@ -128,17 +139,25 @@ export type JobEntryResolution =
  * Decide what to do when opening job-tracking for a given id.
  * Prevents resurrecting finished/dismissed orders after app restart.
  */
-export async function resolveJobTrackingEntry(jobId: string): Promise<JobEntryResolution> {
+export async function resolveJobTrackingEntry(
+  jobId: string,
+  localJob?: Job | null
+): Promise<JobEntryResolution> {
   if (!jobId) return { action: 'home' };
 
-  if (await shouldSkipCompletionScreen(jobId)) {
-    return { action: 'home' };
+  let job = await fetchJobByIdWithRetry(jobId);
+
+  // Fresh booking: store already has the job before the server round-trip finishes
+  if (!job && localJob?.id === jobId && !isTerminalJobStatus(localJob.status)) {
+    job = localJob;
   }
 
-  const job = await fetchJobById(jobId);
   if (!job) return { action: 'home' };
 
   if (job.status === 'completed') {
+    if (await shouldSkipCompletionScreen(jobId)) {
+      return { action: 'home' };
+    }
     return { action: 'complete', jobId };
   }
   if (job.status === 'cancelled') {

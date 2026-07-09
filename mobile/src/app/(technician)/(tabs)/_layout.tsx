@@ -14,6 +14,7 @@ export default function TechnicianTabLayout() {
   const colorScheme = useAppThemeStore((s) => s.colorScheme);
   const colors = getThemeColors(colorScheme);
   const setProfile = useTechnicianStore((s) => s.setProfile);
+
   const [userRole, setUserRole] = React.useState<string | null>(null);
   const [isApproved, setIsApproved] = React.useState<boolean | null>(null);
   const [roleChecked, setRoleChecked] = React.useState(false);

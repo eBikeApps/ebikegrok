@@ -3,7 +3,7 @@ import { View, Text, Pressable, Linking, Platform, StyleSheet } from 'react-nati
 import ConfirmModal from '@/components/ConfirmModal';
 import { RequireAuth } from '@/components/RequireAuth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import Animated, {
   FadeInUp,
@@ -33,6 +33,7 @@ import {
   resolveJobTrackingEntry,
 } from '@/lib/active-job-sync';
 import { formatJobReference } from '@/lib/job-reference';
+import { isMockPaymentsEnabled, normalizePaymentUrl } from '@/lib/mock-payments';
 import {
   statusSteps,
   calcDistance,
@@ -198,7 +199,8 @@ function JobTrackingScreen() {
         goHomeAfterCompletion();
         return;
       }
-      const resolution = await resolveJobTrackingEntry(params.id);
+      const localJob = useActiveJobStore.getState().activeJob;
+      const resolution = await resolveJobTrackingEntry(params.id, localJob);
       if (cancelled || !isMountedRef.current) return;
 
       if (resolution.action === 'home') {
@@ -239,6 +241,16 @@ function JobTrackingScreen() {
     const interval = setInterval(pollJobStatus, 2000);
     return () => clearInterval(interval);
   }, [entryReady, activeJob?.status, activeJob?.id, params.id, pollJobStatus, navigateToCompletionIfNeeded, goHomeAfterCompletion]);
+
+  // Refresh payment status when returning from the payment WebView
+  useFocusEffect(
+    useCallback(() => {
+      if (!entryReady || !params.id) return;
+      if (statusRef.current === 'accepted' && paymentStatusRef.current !== 'paid') {
+        pollJobStatus();
+      }
+    }, [entryReady, params.id, pollJobStatus])
+  );
 
   // Recalculate ETA whenever technician location changes
   useEffect(() => {
@@ -315,12 +327,12 @@ function JobTrackingScreen() {
         return;
       }
       if (result.paymentUrl) {
-        // Use the in-app payment page (WebView) instead of external browser for better UX
+        const paymentUrl = normalizePaymentUrl(result.paymentUrl);
         router.push({
           pathname: '/payment',
           params: {
             jobId: params.id,
-            paymentUrl: result.paymentUrl,
+            paymentUrl,
             amount: (result.amount || activeJob?.estimated_price_max || activeJob?.estimated_price_min || 0).toString(),
             description:
               result.description ??
@@ -346,8 +358,7 @@ function JobTrackingScreen() {
         setInfoModal({ visible: true, title: t('error'), message: conflictMessage });
         return;
       }
-      const mockEnabled = process.env.EXPO_PUBLIC_MOCK_PAYMENTS === 'true';
-      if (!mockEnabled && (msg.includes('טרם הוגדרה') || msg.includes('not configured'))) {
+      if (!isMockPaymentsEnabled() && (msg.includes('טרם הוגדרה') || msg.includes('not configured'))) {
         setInfoModal({ visible: true, title: 'ספק תשלומים לא מוגדר', message: 'לא ניתן ליצור דף תשלום. הפעל MOCK_PAYMENTS בשרת לבדיקות.' });
       } else if (activeJob?.status === 'pending') {
         setInfoModal({ visible: true, title: t('error'), message: t('waitingForTechnician') });
@@ -368,7 +379,8 @@ function JobTrackingScreen() {
       if (res.success) {
         paymentStatusRef.current = 'paid';
         setPaymentStatus('paid');
-        setInfoModal({ visible: true, title: 'DEV', message: 'תשלום סומלץ בהצלחה (לצורך בדיקה בלבד). הטכנאי אמור לקבל התראה.' });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await pollJobStatus();
       } else {
         setInfoModal({ visible: true, title: 'שגיאה', message: res.error || 'לא ניתן לסמלץ תשלום' });
       }
@@ -459,8 +471,8 @@ function JobTrackingScreen() {
         visible={infoModal.visible}
         title={infoModal.title}
         message={infoModal.message}
+        alertOnly
         confirmText={t('close')}
-        cancelText={t('close')}
         onConfirm={() => setInfoModal((s) => ({ ...s, visible: false }))}
         onCancel={() => setInfoModal((s) => ({ ...s, visible: false }))}
       />
@@ -491,9 +503,7 @@ function JobTrackingScreen() {
 
   // Show payment screen when technician accepted but customer hasn't paid yet
   if (activeJob.status === 'accepted' && paymentStatus !== 'paid') {
-    const mockPayments = process.env.EXPO_PUBLIC_MOCK_PAYMENTS === 'true';
-    const enableDevSimulate =
-      process.env.EXPO_PUBLIC_ENABLE_DEV_SIMULATE_PAY === 'true' && !mockPayments;
+    const mockPayments = isMockPaymentsEnabled();
     return (
       <>
         <PaymentRequiredScreen
@@ -501,7 +511,8 @@ function JobTrackingScreen() {
           totalPrice={activeJob.estimated_price_max ?? activeJob.estimated_price_min ?? 0}
           onPayNow={handlePayNow}
           onCancel={handleCancel}
-          onSimulatePay={enableDevSimulate ? handleSimulatePay : undefined}
+          onSimulatePay={mockPayments ? handleSimulatePay : undefined}
+          mockPayments={mockPayments}
           paymentLoading={paymentLoading}
         />
         {cancelModals}

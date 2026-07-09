@@ -226,8 +226,8 @@ app.get("/api/me", async (c) => {
         image: true,
         role: true,
         isApproved: true,
+        isAvailable: true,
         phone: true,
-        savedAddresses: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -237,10 +237,9 @@ app.get("/api/me", async (c) => {
       return c.body(null, 404);
     }
 
+    const { fetchUserSavedAddresses } = await import("./lib/saved-addresses-db");
+    const savedAddresses = await fetchUserSavedAddresses(sessionUser.id);
     const isAdmin = isAdminUser(fullUser);
-    const savedAddresses = Array.isArray(fullUser.savedAddresses)
-      ? fullUser.savedAddresses
-      : [];
     return c.json({
       user: { ...fullUser, savedAddresses, isAdmin },
     });
@@ -1074,7 +1073,6 @@ app.get("/api/users/me", async (c) => {
         role: true,
         isApproved: true,
         phone: true,
-        savedAddresses: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -1082,10 +1080,9 @@ app.get("/api/users/me", async (c) => {
 
     if (!fullUser) return c.body(null, 404);
 
+    const { fetchUserSavedAddresses } = await import("./lib/saved-addresses-db");
+    const savedAddresses = await fetchUserSavedAddresses(sessionUser.id);
     const isAdmin = isAdminUser(fullUser);
-    const savedAddresses = Array.isArray(fullUser.savedAddresses)
-      ? fullUser.savedAddresses
-      : [];
     return c.json({ user: { ...fullUser, savedAddresses, isAdmin } });
   } catch (error) {
     console.error("Error fetching user (users/me):", error);
@@ -1224,8 +1221,8 @@ void (async () => {
   }
 })();
 
-// Auto-unavailability: mark technicians offline after 5 minutes without a ping
-const STALE_MS = 5 * 60 * 1000;
+// Auto-unavailability: mark technicians offline after prolonged silence (screen off / background)
+const STALE_MS = 45 * 60 * 1000;
 setInterval(async () => {
   try {
     const { prisma } = await import("./prisma");

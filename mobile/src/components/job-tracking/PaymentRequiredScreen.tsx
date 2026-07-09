@@ -15,6 +15,7 @@ export function PaymentRequiredScreen({
   onPayNow,
   onCancel,
   onSimulatePay,
+  mockPayments,
   paymentLoading,
 }: {
   technician?: { name?: string; avatar_url?: string };
@@ -22,6 +23,7 @@ export function PaymentRequiredScreen({
   onPayNow: () => void;
   onCancel: () => void;
   onSimulatePay?: () => void;
+  mockPayments?: boolean;
   paymentLoading: boolean;
 }) {
   const insets = useSafeAreaInsets();
@@ -145,7 +147,9 @@ export function PaymentRequiredScreen({
                   <DotLoader delay={400} />
                 </>
               ) : (
-                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18 }}>💳  שלם עכשיו</Text>
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18 }}>
+                  {mockPayments ? '💳 שלם (תשלום לדוגמה)' : '💳  שלם עכשיו'}
+                </Text>
               )}
             </LinearGradient>
           </Pressable>
@@ -165,8 +169,8 @@ export function PaymentRequiredScreen({
                 alignItems: 'center',
               })}
             >
-              <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 14 }}>
-                🧪 DEV: סמלץ תשלום הצלחה (לבדיקה בלבד)
+              <Text style={{ color: '#D97706', fontWeight: '700', fontSize: 14 }}>
+                ⚡ תשלום מיידי ללא כרטיס (בדיקה)
               </Text>
             </Pressable>
           )}

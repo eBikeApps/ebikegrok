@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { buildIsraeliAddress, geocodeAddress } from "../lib/geocode";
+import { buildIsraeliAddress, geocodeAddress, geocodeStructuredAddress } from "../lib/geocode";
 
 const geocodeQuerySchema = z.object({
   address: z.string().min(3).max(300).optional(),
@@ -29,9 +29,22 @@ geocodeRouter.get("/", zValidator("query", geocodeQuerySchema), async (c) => {
   }
 
   try {
-    const result = await geocodeAddress(address);
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
+    if (!apiKey) {
+      return c.json({ error: "Geocoding service unavailable", code: "SERVICE_UNAVAILABLE" }, 503);
+    }
+
+    const result =
+      query.city && query.street
+        ? await geocodeStructuredAddress({
+            city: query.city,
+            street: query.street,
+            houseNumber: query.houseNumber,
+          })
+        : await geocodeAddress(address);
+
     if (!result) {
-      return c.json({ error: "Address not found", address }, 404);
+      return c.json({ error: "Address not found", code: "NOT_FOUND", address }, 404);
     }
     return c.json({
       latitude: result.latitude,

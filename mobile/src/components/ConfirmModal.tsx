@@ -1,6 +1,13 @@
 import React from 'react';
-import { View, Text, Pressable, Modal, ActivityIndicator, StyleSheet } from 'react-native';
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import {
+  View,
+  Text,
+  Pressable,
+  Modal,
+  ActivityIndicator,
+  StyleSheet,
+  I18nManager,
+} from 'react-native';
 
 interface ConfirmModalProps {
   visible: boolean;
@@ -12,41 +19,10 @@ interface ConfirmModalProps {
   onCancel: () => void;
   destructive?: boolean;
   loading?: boolean;
+  /** @deprecated All modals use the same centered layout now */
   centered?: boolean;
   /** Single dismiss button (errors, info) */
   alertOnly?: boolean;
-}
-
-function ModalIcon({ destructive }: { destructive: boolean }) {
-  return (
-    <View
-      style={{
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: destructive ? '#FEE2E2' : '#EFF6FF',
-        alignItems: 'center',
-        justifyContent: 'center',
-        alignSelf: 'center',
-        marginBottom: 16,
-      }}
-    >
-      <Text style={{ fontSize: 24 }}>{destructive ? '⚠️' : '❓'}</Text>
-    </View>
-  );
-}
-
-function ModalCopy({ title, message }: { title: string; message: string }) {
-  return (
-    <>
-      <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 }}>
-        {title}
-      </Text>
-      <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22, marginBottom: 28 }}>
-        {message}
-      </Text>
-    </>
-  );
 }
 
 export default function ConfirmModal({
@@ -59,194 +35,181 @@ export default function ConfirmModal({
   onCancel,
   destructive = false,
   loading = false,
-  centered = false,
   alertOnly = false,
 }: ConfirmModalProps) {
-  const showCancel = !alertOnly && cancelText;
-  const confirmBg = destructive ? '#EF4444' : '#3B82F6';
+  const showCancel = !alertOnly;
 
-  if (centered) {
-    return (
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-        <View style={styles.centeredRoot}>
-          <Pressable style={styles.centeredBackdrop} onPress={onCancel} accessibilityRole="button" />
-          <View style={styles.centeredCard}>
-            <ModalIcon destructive={destructive} />
-            <ModalCopy title={title} message={message} />
-
-            {showCancel ? (
-              <View style={styles.centeredActionsRow}>
-                <Pressable
-                  onPress={onCancel}
-                  disabled={loading}
-                  style={({ pressed }) => [
-                    styles.centeredActionButton,
-                    styles.centeredCancelButton,
-                    pressed && styles.centeredButtonPressed,
-                  ]}
-                >
-                  <Text style={styles.centeredCancelText}>{cancelText}</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={onConfirm}
-                  disabled={loading}
-                  style={({ pressed }) => [
-                    styles.centeredActionButton,
-                    { backgroundColor: confirmBg },
-                    pressed && styles.centeredButtonPressed,
-                    loading && styles.centeredButtonDisabled,
-                  ]}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.centeredConfirmText}>{confirmText}</Text>
-                  )}
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable
-                onPress={onConfirm}
-                disabled={loading}
-                style={({ pressed }) => [
-                  styles.centeredSingleConfirm,
-                  { backgroundColor: confirmBg },
-                  pressed && styles.centeredButtonPressed,
-                  loading && styles.centeredButtonDisabled,
-                ]}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.centeredConfirmText}>{confirmText}</Text>
-                )}
-              </Pressable>
-            )}
-          </View>
-        </View>
-      </Modal>
-    );
-  }
-
-  // Original bottom sheet (for other confirmations)
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onCancel}>
-      <Animated.View
-        entering={FadeIn.duration(200)}
-        exiting={FadeOut.duration(200)}
-        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
-      >
-        <Pressable style={{ flex: 1 }} onPress={onCancel} />
-        <Animated.View
-          entering={SlideInDown.springify().damping(18)}
-          exiting={SlideOutDown.duration(250)}
-          style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40 }}
-        >
-          <View style={{ width: 40, height: 4, backgroundColor: '#E5E7EB', borderRadius: 2, alignSelf: 'center', marginBottom: 20 }} />
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.overlay}>
+        <Pressable
+          style={styles.backdrop}
+          onPress={onCancel}
+          accessibilityRole="button"
+          accessibilityLabel={cancelText}
+        />
 
-          <ModalIcon destructive={destructive} />
-          <ModalCopy title={title} message={message} />
+        <View style={styles.card} pointerEvents="box-none">
+          <View
+            style={[
+              styles.iconCircle,
+              destructive ? styles.iconCircleDestructive : styles.iconCircleDefault,
+            ]}
+          >
+            <Text style={styles.iconEmoji}>{destructive ? '⚠️' : 'ℹ️'}</Text>
+          </View>
+
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.message}>{message}</Text>
 
           <Pressable
             onPress={onConfirm}
             disabled={loading}
-            style={{
-              backgroundColor: confirmBg,
-              borderRadius: 16,
-              paddingVertical: 16,
-              alignItems: 'center',
-              marginBottom: 12,
-              opacity: loading ? 0.6 : 1,
-            }}
+            accessibilityRole="button"
+            accessibilityLabel={confirmText}
+            style={({ pressed }) => pressed && styles.buttonPressed}
           >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>{confirmText}</Text>
-            )}
+            <View
+              style={[
+                styles.confirmButton,
+                destructive ? styles.confirmDestructive : styles.confirmPrimary,
+                loading && styles.buttonDisabled,
+              ]}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.confirmText}>{confirmText}</Text>
+              )}
+            </View>
           </Pressable>
 
           {showCancel ? (
             <Pressable
               onPress={onCancel}
               disabled={loading}
-              style={{ paddingVertical: 14, alignItems: 'center' }}
+              accessibilityRole="button"
+              accessibilityLabel={cancelText}
+              style={({ pressed }) => pressed && styles.buttonPressed}
             >
-              <Text style={{ color: '#6B7280', fontWeight: '600', fontSize: 15 }}>{cancelText}</Text>
+              <View style={[styles.cancelButton, loading && styles.buttonDisabled]}>
+                <Text style={styles.cancelText}>{cancelText}</Text>
+              </View>
             </Pressable>
           ) : null}
-        </Animated.View>
-      </Animated.View>
+        </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  centeredRoot: {
+  overlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    paddingHorizontal: 24,
   },
-  centeredBackdrop: {
+  backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
-  centeredCard: {
-    zIndex: 1,
-    elevation: 8,
+  card: {
+    width: '100%',
+    maxWidth: 340,
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     paddingHorizontal: 24,
     paddingTop: 24,
-    paddingBottom: 24,
-    width: '100%',
-    maxWidth: 340,
+    paddingBottom: 20,
+    zIndex: 2,
+    elevation: 12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
   },
-  centeredActionsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
+  iconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 16,
   },
-  centeredActionButton: {
-    flex: 1,
+  iconCircleDefault: {
+    backgroundColor: '#EFF6FF',
+  },
+  iconCircleDestructive: {
+    backgroundColor: '#FEE2E2',
+  },
+  iconEmoji: {
+    fontSize: 24,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 8,
+    writingDirection: I18nManager.isRTL ? 'rtl' : 'ltr',
+  },
+  message: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+    writingDirection: I18nManager.isRTL ? 'rtl' : 'ltr',
+  },
+  confirmButton: {
+    width: '100%',
+    minHeight: 50,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  confirmPrimary: {
+    backgroundColor: '#2563EB',
+  },
+  confirmDestructive: {
+    backgroundColor: '#DC2626',
+  },
+  confirmText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 16,
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  cancelButton: {
+    width: '100%',
     minHeight: 48,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-  },
-  centeredCancelButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: '#F3F4F6',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#D1D5DB',
   },
-  centeredCancelText: {
+  cancelText: {
     color: '#374151',
     fontWeight: '600',
     fontSize: 15,
     textAlign: 'center',
+    includeFontPadding: false,
   },
-  centeredConfirmText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 15,
-    textAlign: 'center',
+  buttonPressed: {
+    opacity: 0.88,
   },
-  centeredSingleConfirm: {
-    width: '100%',
-    minHeight: 48,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-  },
-  centeredButtonPressed: {
-    opacity: 0.85,
-  },
-  centeredButtonDisabled: {
+  buttonDisabled: {
     opacity: 0.6,
   },
 });

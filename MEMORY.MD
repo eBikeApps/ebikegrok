@@ -513,3 +513,67 @@ curl -X PUT "https://api.render.com/v1/services/srv-d6nkoji4d50c7389lcpg/env-var
 > "בוא נוסיף תשלומים" / "בוא נחבר Tranzila" / "המשך מאתמול"
 
 Last updated: 2026-07-06 (evening) — Mobile polish session + sign-out modal fix + handoff for Tranzila tomorrow.
+
+---
+
+## 2026-07-09 — זמינות טכנאים, UX לקוח, תשלומי mock, build iOS
+
+**קרא את הסעיף הזה בתחילת הסשן הבא.** המשתמש אמר: *"נמשיך מחר שוב"*.
+
+### מה עשינו היום
+
+#### 1. באג אלביס — זמין בטלפון, לא נראה ללקוח
+- **סיבה:** `isAvailable: false` בשרת (cron אחרי 45 דק' בלי heartbeat); האפליקציה שמרה `true` מקומית; `syncAvailabilityFromServer` משך `false` מהשרת
+- **תיקון DB מיידי:** אלביס (`maort@ebike.com`) עודכן ל-`isAvailable: true` + `lastSeenAt` עדכני
+- **קוד חדש:** `mobile/src/lib/technician-availability-sync.ts` — `reassertTechnicianAvailability()`
+- **`mobile/src/app/(technician)/(tabs)/index.tsx`:** דוחף זמינות לשרת בפתיחה/חזרה מרקע; הוסר `syncAvailabilityFromServer`
+- **`backend/src/routes/technicians.ts`:** רדיוס מינימלי 40km ב-`/available`
+- **Render `/health`:** `mockPayments: true` — פרודקשן כבר mock
+
+#### 2. לקוח קופץ למסך הבית אחרי בחירת טכנאי
+- **סיבה:** `job-tracking` קרא לשרת; כשלון → `goHomeAfterCompletion()`
+- **תיקון:** `mobile/src/lib/active-job-sync.ts` — retry, גיבוי מ-job מקומי, `shouldSkipCompletionScreen` רק להזמנות שהושלמו
+- **`technician-select.tsx`:** ניווט מיידי למעקב (בלי delay 1.2s)
+
+#### 3. אייקון גדול להזמנה פעילה במסך הבית (לקוח)
+- **`mobile/src/app/(customer)/(tabs)/index.tsx`:** כרטיס `ActiveJobHeroCard` עם אייקון מפתח גדול, פעימה, סטטוס, מספר הזמנה
+- polling כל 12 שניות — נעלם כשהטכנאי מבטל / ההזמנה מסתיימת
+- כפתור "הזמן תיקון" מוסתר כשיש הזמנה פעילה
+
+#### 4. תשלומים פיקטיביים לבדיקה
+- **`mobile/src/lib/mock-payments.ts`:** `isMockPaymentsEnabled()`, `normalizePaymentUrl()`
+- כפתור **"תשלום מיידי ללא כרטיס"** מוצג במצב mock (לפני היה מוסתר!)
+- **`payment.tsx`:** אחרי תשלום → חזרה ל-`job-tracking?paid=1` (לא למסך הבית)
+- **`backend/.env`:** `BACKEND_URL=http://127.0.0.1:3001` (תיקון WebView מקומי)
+- **`eas.json` + `.env`:** `EXPO_PUBLIC_MOCK_PAYMENTS=true`, `EXPO_PUBLIC_ENABLE_DEV_SIMULATE_PAY=true`
+
+#### 5. Build iOS 1.7.1 (build 20)
+- **Build הצליח:** `a30166f8-c8ed-40d1-a631-1a3e929efcab`
+- **העלאה ל-App Store נכשלה:** חסר חתימה על הסכם ב-[developer.apple.com](https://developer.apple.com) → Agreements, Tax, and Banking
+- **⚠️ Build 20 נבנה מ-commit ישן** (`9b1f1e9`) — **בלי** כל התיקונים של היום
+- **צריך build 21** אחרי commit + חתימת הסכם Apple
+
+### מצב git (לא committed — 2026-07-09)
+רוב השינויים **מקומיים בלבד**. **לא לcommit:** `mobile/typescript` (זבל).
+
+### חשבונות / סביבה
+| | |
+|---|---|
+| לקוח בדיקה | `a@abc.com` / `123456` |
+| טכנאי אלביס | `maort@ebike.com` |
+| Backend prod | `https://ebikel-backend.onrender.com` |
+| Backend local | `http://127.0.0.1:3001` |
+| Supabase DB | pooler port **6543** + `?pgbouncer=true` |
+
+### סדר עבודה למחר
+1. **חתימת הסכם Apple** → שליחת build 21 ל-App Store
+2. **Commit + push** כל השינויים המקומיים
+3. **Build 21** עם תיקוני זמינות + מעקב + תשלומי mock + כרטיס הזמנה פעילה
+4. **Deploy backend** ל-Render (רדיוס 40km + שינויי payments אם יש)
+5. **בדיקת E2E:** הזמנה → accept → תשלום mock → on_way → complete
+6. אלביס: לוודא שאחרי build חדש הזמינות מסתנכרנת אוטומטית
+
+### הודעת פתיחה צפויה
+> "נמשיך מאתמול" / "תעלה build" / "תבדוק תשלומים"
+
+Last updated: 2026-07-09 — availability sync, job tracking fix, active job hero, mock payments, iOS build 20 done / submit blocked.

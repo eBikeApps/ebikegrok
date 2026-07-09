@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, Pressable, Dimensions, FlatList, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { View, Text, Pressable, Dimensions, FlatList, ViewToken } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics';
 
 import { useLanguageStore } from '@/lib/store';
 import { markWelcomeSeen } from '@/lib/welcome-storage';
+import { useSession } from '@/lib/auth/use-session';
 import { gradients } from '@/lib/brand-colors';
 
 const { width } = Dimensions.get('window');
@@ -48,12 +49,21 @@ const SLIDES: Slide[] = [
 export default function WelcomeScreen() {
   const router = useRouter();
   const t = useLanguageStore((s) => s.t);
+  const { data: session } = useSession();
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<Slide>>(null);
 
   const finish = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await markWelcomeSeen();
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    if (session?.user) {
+      router.replace('/(customer)/(tabs)');
+      return;
+    }
     router.replace('/sign-in');
   };
 
@@ -67,10 +77,17 @@ export default function WelcomeScreen() {
     finish();
   };
 
-  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const next = Math.round(e.nativeEvent.contentOffset.x / width);
-    if (next !== index) setIndex(next);
-  };
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const visible = viewableItems.find((item) => item.isViewable);
+      if (visible?.index != null) {
+        setIndex((prev) => (prev === visible.index ? prev : visible.index!));
+      }
+    }
+  ).current;
+
+  const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 60 }).current;
+  const isLastSlide = SLIDES[index]?.key === 'pay';
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
@@ -89,13 +106,16 @@ export default function WelcomeScreen() {
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
-          onScroll={onScroll}
-          scrollEventThrottle={16}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
           renderItem={({ item, index: slideIndex }) => {
             const Icon = item.icon;
             return (
               <View style={{ width, flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
-                <Animated.View entering={FadeInUp.delay(slideIndex * 80).duration(400)}>
+                <Animated.View
+                  entering={FadeInUp.delay(slideIndex * 80).duration(400)}
+                  style={{ alignItems: 'center', alignSelf: 'center', width: '100%' }}
+                >
                   <LinearGradient
                     colors={item.colors}
                     style={{
@@ -105,6 +125,7 @@ export default function WelcomeScreen() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       marginBottom: 36,
+                      alignSelf: 'center',
                     }}
                   >
                     <Icon size={52} color="#fff" />
@@ -161,7 +182,7 @@ export default function WelcomeScreen() {
             style={{ borderRadius: 16, paddingVertical: 16, alignItems: 'center' }}
           >
             <Text style={{ color: '#fff', fontWeight: '700', fontSize: 17 }}>
-              {index < SLIDES.length - 1 ? t('next') : t('welcomeContinue')}
+              {isLastSlide ? t('done') : t('next')}
             </Text>
           </LinearGradient>
         </Pressable>

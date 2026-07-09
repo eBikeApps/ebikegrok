@@ -1,13 +1,21 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, Pressable, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, Linking, StyleSheet } from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInUp } from 'react-native-reanimated';
-import { User, MapPin, Star, Wrench, RefreshCw } from 'lucide-react-native';
+import Animated, {
+  FadeInUp,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
+import { User, MapPin, Star, Wrench, RefreshCw, BookOpen, ChevronLeft, Radio } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 
@@ -18,9 +26,10 @@ import {
 } from '@/lib/active-job-sync';
 import { calculateDistance, estimateArrivalTime } from '@/lib/mock-data';
 import { gradients } from '@/lib/brand-colors';
-import { TechnicianProfile, Location as LocationType } from '@/lib/types';
+import { TechnicianProfile, Location as LocationType, Job, JobStatus } from '@/lib/types';
 import { useSession } from '@/lib/auth/use-session';
 import { authClient } from '@/lib/auth/auth-client';
+import { formatJobReference } from '@/lib/job-reference';
 
 const MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
@@ -120,6 +129,89 @@ function buildMapHtml(lat: number, lng: number): string {
 </html>`;
 }
 
+function activeJobStatusLabel(status: JobStatus, t: (key: string) => string): string {
+  switch (status) {
+    case 'pending':
+      return t('waitingForTechnician');
+    case 'accepted':
+      return t('waitingForPayment');
+    case 'on_way':
+      return t('technicianOnWay');
+    case 'arrived':
+      return t('technicianArrived');
+    case 'in_progress':
+      return t('repairInProgress');
+    default:
+      return t('activeJobCardTitle');
+  }
+}
+
+function ActiveJobHeroCard({
+  job,
+  onPress,
+  t,
+}: {
+  job: Job;
+  onPress: () => void;
+  t: (key: string) => string;
+}) {
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1.18, { duration: 900, easing: Easing.out(Easing.ease) }),
+        withTiming(1, { duration: 900, easing: Easing.in(Easing.ease) })
+      ),
+      -1,
+      false
+    );
+  }, [pulse]);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+    opacity: 2 - pulse.value,
+  }));
+
+  const jobRef = job.job_reference || formatJobReference(job.job_number);
+  const techName = job.technician?.name;
+
+  return (
+    <Animated.View entering={FadeInUp.duration(400)} style={styles.activeJobWrap}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={t('activeJobTapToTrack')}
+        style={({ pressed }) => [styles.activeJobCard, pressed && { transform: [{ scale: 0.98 }] }]}
+      >
+        <View style={styles.activeJobIconArea}>
+          <Animated.View style={[styles.activeJobPulse, pulseStyle]} />
+          <LinearGradient colors={[...gradients.primary]} style={styles.activeJobIconCircle}>
+            <Wrench size={44} color="#fff" strokeWidth={2.5} />
+          </LinearGradient>
+          <View style={styles.activeJobLiveBadge}>
+            <Radio size={12} color="#fff" fill="#fff" />
+          </View>
+        </View>
+
+        <Text style={styles.activeJobTitle}>{t('activeJobCardTitle')}</Text>
+        {!!jobRef && <Text style={styles.activeJobRef}>{jobRef}</Text>}
+        <Text style={styles.activeJobStatus}>{activeJobStatusLabel(job.status, t)}</Text>
+        {!!techName && (
+          <Text style={styles.activeJobTech}>
+            {techName}
+          </Text>
+        )}
+
+        <View style={styles.activeJobCta}>
+          <Text style={styles.activeJobCtaText}>{t('activeJobTapToTrack')}</Text>
+          <ChevronLeft size={18} color="#2563EB" />
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 export default function CustomerHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -137,7 +229,7 @@ export default function CustomerHomeScreen() {
   const [selectedTechnician, setSelectedTechnician] = useState<TechnicianProfile | null>(null);
   const [nearbyTechnicians, setNearbyTechnicians] = useState<TechnicianProfile[]>([]);
   const [allTechnicians, setAllTechnicians] = useState<TechnicianProfile[]>([]);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [locationModalVisible, setLocationModalVisible] = useState(false);
   const [locationModalForRepair, setLocationModalForRepair] = useState(false);
 
@@ -150,75 +242,44 @@ export default function CustomerHomeScreen() {
   const [mapLat, setMapLat] = useState(defaultLat);
   const [mapLng, setMapLng] = useState(defaultLng);
 
-  // Check for an active job on focus — show banner instead of auto-redirect
+  const refreshActiveJob = useCallback(async () => {
+    try {
+      const job = await fetchCustomerActiveJob();
+      if (!job || isTerminalJobStatus(job.status)) {
+        setActiveJob(null);
+        setActiveJobInStore(null);
+        return;
+      }
+      setActiveJob(job);
+      setActiveJobInStore(job);
+    } catch {
+      setActiveJob(null);
+      setActiveJobInStore(null);
+    }
+  }, [setActiveJobInStore]);
+
+  // Poll active job — icon disappears when technician cancels or job completes
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       const check = async () => {
-        try {
-          const job = await fetchCustomerActiveJob();
-          if (cancelled) return;
-          if (!job || isTerminalJobStatus(job.status)) {
-            setActiveJobId(null);
-            return;
-          }
-          setActiveJobId(job.id);
-          setActiveJobInStore(job);
-        } catch {
-          if (!cancelled) setActiveJobId(null);
-        }
+        if (cancelled) return;
+        await refreshActiveJob();
       };
       check();
+      const interval = setInterval(check, 12_000);
       return () => {
         cancelled = true;
+        clearInterval(interval);
       };
-    }, [setActiveJobInStore])
+    }, [refreshActiveJob])
   );
 
   useEffect(() => {
     requestLocationPermission();
   }, []);
 
-  useEffect(() => {
-    if (session?.user) {
-      fetchTechnicians();
-    }
-  }, [currentLocation, session?.user]);
-
-  useEffect(() => {
-    if (allTechnicians.length === 0) return;
-    const loc = currentLocation ?? { latitude: defaultLat, longitude: defaultLng };
-    const nearby = allTechnicians.filter((tech) => {
-      if (!tech.current_location || !tech.is_available) return false;
-      const distance = calculateDistance(loc, tech.current_location);
-      return distance <= Math.max(tech.service_radius || 40, 40);
-    });
-    setNearbyTechnicians(nearby);
-  }, [currentLocation, allTechnicians]);
-
-  useEffect(() => {
-    if (!mapReady) return;
-    const markers = nearbyTechnicians
-      .filter((t) => t.current_location)
-      .map((t) => ({
-        id: t.id,
-        lat: t.current_location!.latitude,
-        lng: t.current_location!.longitude,
-        name: t.name,
-      }));
-    webViewRef.current?.injectJavaScript(
-      `updateMarkers(${JSON.stringify(markers)}, ${JSON.stringify(selectedTechnician?.id ?? null)}); true;`
-    );
-  }, [nearbyTechnicians, selectedTechnician, mapReady]);
-
-  useEffect(() => {
-    if (!mapReady || !currentLocation) return;
-    webViewRef.current?.injectJavaScript(
-      `updateLocation(${currentLocation.latitude}, ${currentLocation.longitude}); true;`
-    );
-  }, [currentLocation, mapReady]);
-
-  const fetchTechnicians = async () => {
+  const fetchTechnicians = useCallback(async () => {
     try {
       const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL!;
       const sessionResult = await authClient.getSession();
@@ -260,7 +321,56 @@ export default function CustomerHomeScreen() {
     } catch (error) {
       console.error('Error fetching technicians:', error);
     }
-  };
+  }, [currentLocation]);
+
+  useEffect(() => {
+    if (session?.user) {
+      fetchTechnicians();
+    }
+  }, [session?.user, fetchTechnicians]);
+
+  // Refresh technician list while home screen is visible
+  useFocusEffect(
+    useCallback(() => {
+      if (!session?.user) return;
+      fetchTechnicians();
+      const interval = setInterval(fetchTechnicians, 20_000);
+      return () => clearInterval(interval);
+    }, [session?.user, fetchTechnicians])
+  );
+
+  useEffect(() => {
+    if (allTechnicians.length === 0) return;
+    const loc = currentLocation ?? { latitude: defaultLat, longitude: defaultLng };
+    const nearby = allTechnicians.filter((tech) => {
+      if (!tech.current_location || !tech.is_available) return false;
+      const distance = calculateDistance(loc, tech.current_location);
+      return distance <= Math.max(tech.service_radius || 40, 40);
+    });
+    setNearbyTechnicians(nearby);
+  }, [currentLocation, allTechnicians]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const markers = nearbyTechnicians
+      .filter((t) => t.current_location)
+      .map((t) => ({
+        id: t.id,
+        lat: t.current_location!.latitude,
+        lng: t.current_location!.longitude,
+        name: t.name,
+      }));
+    webViewRef.current?.injectJavaScript(
+      `updateMarkers(${JSON.stringify(markers)}, ${JSON.stringify(selectedTechnician?.id ?? null)}); true;`
+    );
+  }, [nearbyTechnicians, selectedTechnician, mapReady]);
+
+  useEffect(() => {
+    if (!mapReady || !currentLocation) return;
+    webViewRef.current?.injectJavaScript(
+      `updateLocation(${currentLocation.latitude}, ${currentLocation.longitude}); true;`
+    );
+  }, [currentLocation, mapReady]);
 
   const requestLocationPermission = async () => {
     try {
@@ -315,12 +425,18 @@ export default function CustomerHomeScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     refreshLocation();
     fetchTechnicians();
+    refreshActiveJob();
+  };
+
+  const handleOpenTutorial = () => {
+    Haptics.selectionAsync();
+    router.push('/welcome');
   };
 
   const handleGoToActiveJob = () => {
-    if (!activeJobId) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({ pathname: '/job-tracking', params: { id: activeJobId } });
+    if (!activeJob?.id) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    router.push({ pathname: '/job-tracking', params: { id: activeJob.id } });
   };
 
   const handleRequestRepair = () => {
@@ -401,25 +517,6 @@ export default function CustomerHomeScreen() {
           </Pressable>
         </View>
 
-        {activeJobId && (
-          <Pressable
-            onPress={handleGoToActiveJob}
-            style={{
-              marginHorizontal: 16,
-              marginBottom: 8,
-              backgroundColor: '#EFF6FF',
-              borderRadius: 12,
-              paddingVertical: 12,
-              paddingHorizontal: 16,
-              borderWidth: 1,
-              borderColor: '#BFDBFE',
-            }}
-          >
-            <Text style={{ color: '#1D4ED8', fontWeight: '700', fontSize: 14, textAlign: 'center' }}>
-              {t('activeJobBanner')}
-            </Text>
-          </Pressable>
-        )}
       </View>
 
       {/* Map */}
@@ -500,28 +597,162 @@ export default function CustomerHomeScreen() {
           onCancel={() => setLocationModalVisible(false)}
         />
 
-        {/* Request Repair FAB */}
-        <View style={{ position: 'absolute', bottom: 32, left: 24, right: 24 }}>
+        {/* Tutorial */}
+        {!isLoading && !activeJob && (
           <Pressable
-            onPress={handleRequestRepair}
-            accessibilityLabel={t('requestRepairNow')}
+            onPress={handleOpenTutorial}
+            accessibilityLabel={t('tutorialGuide')}
             accessibilityRole="button"
-            style={{ opacity: 1 }}
+            style={{
+              position: 'absolute',
+              bottom: 104,
+              left: 20,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              backgroundColor: 'rgba(255,255,255,0.95)',
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: 'rgba(59,130,246,0.15)',
+              shadowColor: '#000',
+              shadowOpacity: 0.1,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 3,
+            }}
           >
-            <LinearGradient
-              colors={[...gradients.primary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ borderRadius: 16, padding: 16 }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                <Wrench size={24} color="#fff" />
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 18, marginLeft: 12 }}>{t('requestRepairNow')}</Text>
-              </View>
-            </LinearGradient>
+            <BookOpen size={12} color="#3B82F6" />
+            <Text style={{ color: '#3B82F6', fontSize: 11, fontWeight: '600' }}>{t('tutorialGuide')}</Text>
           </Pressable>
-        </View>
+        )}
+
+        {activeJob ? (
+          <ActiveJobHeroCard job={activeJob} onPress={handleGoToActiveJob} t={t} />
+        ) : (
+          <View style={{ position: 'absolute', bottom: 32, left: 24, right: 24 }}>
+            <Pressable
+              onPress={handleRequestRepair}
+              accessibilityLabel={t('requestRepairNow')}
+              accessibilityRole="button"
+            >
+              <LinearGradient
+                colors={[...gradients.primary]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{ borderRadius: 16, padding: 16 }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                  <Wrench size={24} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 18, marginLeft: 12 }}>{t('requestRepairNow')}</Text>
+                </View>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        )}
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  activeJobWrap: {
+    position: 'absolute',
+    bottom: 28,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+  },
+  activeJobCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.12)',
+  },
+  activeJobIconArea: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  activeJobPulse: {
+    position: 'absolute',
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: 'rgba(59,130,246,0.2)',
+  },
+  activeJobIconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeJobLiveBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#22C55E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  activeJobTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  activeJobRef: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+    marginTop: 4,
+  },
+  activeJobStatus: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2563EB',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  activeJobTech: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  activeJobCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    width: '100%',
+    justifyContent: 'center',
+  },
+  activeJobCtaText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+});

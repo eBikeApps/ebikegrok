@@ -3,20 +3,22 @@
     "name": "eBike",
     "slug": "ebike",
     "scheme": "ebike",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.ebikeland.app",
-      "buildNumber": "19",
+      "buildNumber": "21",
       "infoPlist": {
         "NSCameraUsageDescription": "eBike uses the camera to capture photos inside the app before you publish them.",
         "NSPhotoLibraryUsageDescription": "eBike accesses your photo library to let you choose media that appears in the app.",
         "NSLocationWhenInUseUsageDescription": "eBike uses your location to display your position on in-app maps and surface nearby points of interest.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "eBike needs background location while you are marked available so customers can find you when the app is in the background.",
         "UIBackgroundModes": [
-          "remote-notification"
+          "remote-notification",
+          "location"
         ],
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -24,7 +26,7 @@
     "android": {
       "edgeToEdgeEnabled": true,
       "package": "com.ebike.app",
-      "versionCode": 19,
+      "versionCode": 21,
       "adaptiveIcon": {
         "foregroundImage": "./icon.png",
         "backgroundColor": "#ffffff"
@@ -32,13 +34,24 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
       ]
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "eBike needs background location while you are marked available so customers can find you when the app is in the background.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

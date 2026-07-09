@@ -28,8 +28,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import * as Updates from 'expo-updates';
 import { useLanguageStore, useAppThemeStore } from '@/lib/store';
+import { reloadApp } from '@/lib/reload-app';
 import { getThemeColors } from '@/lib/theme-colors';
 import { applyRtlForLanguage } from '@/lib/rtl';
 import { getNotificationsPreference, setNotificationsPreference } from '@/lib/push-notifications';
@@ -146,9 +146,8 @@ export default function ProfileScreen() {
     setLanguage(next);
     const needsReload = applyRtlForLanguage(next);
     if (needsReload) {
-      try {
-        await Updates.reloadAsync();
-      } catch {
+      const reloaded = await reloadApp();
+      if (!reloaded) {
         setInfoModalContent({
           title: next === 'he' ? 'הפעל מחדש' : 'Restart required',
           message:
@@ -475,12 +474,11 @@ export default function ProfileScreen() {
         visible={showSignOutModal}
         title={t('signOut')}
         message={t('signOutConfirmMsg')}
-        confirmText={t('confirm')}
+        confirmText={t('signOut')}
         cancelText={t('cancel')}
         onConfirm={confirmSignOut}
         onCancel={() => setShowSignOutModal(false)}
         destructive
-        centered
       />
 
       <ConfirmModal
@@ -497,8 +495,8 @@ export default function ProfileScreen() {
         visible={showInfoModal}
         title={infoModalContent.title}
         message={infoModalContent.message}
+        alertOnly
         confirmText={t('close')}
-        cancelText={t('close')}
         onConfirm={() => setShowInfoModal(false)}
         onCancel={() => setShowInfoModal(false)}
       />

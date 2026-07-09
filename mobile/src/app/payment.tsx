@@ -87,10 +87,17 @@ function PaymentScreen() {
     setWebviewKey((k) => k + 1);
   };
 
+  const handleSuccessContinue = () => {
+    if (jobId) {
+      router.replace({ pathname: '/job-tracking', params: { id: jobId, paid: '1' } });
+      return;
+    }
+    router.replace('/(customer)/(tabs)');
+  };
+
   const handleClose = () => {
     if (state === 'success') {
-      if (router.canGoBack()) router.back();
-      else router.replace('/(customer)/(tabs)');
+      handleSuccessContinue();
       return;
     }
     Alert.alert(t('payment'), t('paymentRequiredAlert'), [
@@ -104,10 +111,6 @@ function PaymentScreen() {
         },
       },
     ]);
-  };
-
-  const handleSuccessContinue = () => {
-    router.replace({ pathname: '/job-tracking', params: { id: jobId, paid: '1' } });
   };
 
   if (state === 'success') {
@@ -135,12 +138,12 @@ function PaymentScreen() {
               color: '#F8FAFC', fontSize: 28, fontWeight: '800',
               textAlign: 'center', marginBottom: 10,
             }}>
-              התשלום התקבל!
+              שלם והטכנאי בדרך אליך
             </Text>
             <Text style={{
               color: '#64748B', fontSize: 15, textAlign: 'center', lineHeight: 22,
             }}>
-              ₪{amountNum.toLocaleString()} שולמו בהצלחה{'\n'}הטכנאי בדרך אליך
+              ₪{amountNum.toLocaleString()} שולמו בהצלחה
             </Text>
 
             <Pressable
@@ -157,7 +160,7 @@ function PaymentScreen() {
                 }}
               >
                 <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>
-                  מעקב אחר הטכנאי
+                  {t('done')}
                 </Text>
               </LinearGradient>
             </Pressable>

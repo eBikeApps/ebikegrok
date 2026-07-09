@@ -82,6 +82,7 @@ export default function AdminScreen() {
     message: string;
     confirmText: string;
     destructive: boolean;
+    alertOnly?: boolean;
     onConfirm: () => void;
   }>({ visible: false, title: '', message: '', confirmText: '', destructive: false, onConfirm: () => {} });
 
@@ -91,7 +92,7 @@ export default function AdminScreen() {
   });
 
   const showError = (msg: string) => {
-    setConfirmModal({ visible: true, title: t('error'), message: msg, confirmText: t('close'), destructive: false, onConfirm: () => setConfirmModal((s) => ({ ...s, visible: false })) });
+    setConfirmModal({ visible: true, title: t('error'), message: msg, confirmText: t('close'), destructive: false, alertOnly: true, onConfirm: () => setConfirmModal((s) => ({ ...s, visible: false })) });
   };
 
   const { mutate: approveAction } = useMutation({
@@ -437,6 +438,7 @@ export default function AdminScreen() {
         message={confirmModal.message}
         confirmText={confirmModal.confirmText}
         cancelText={t('cancel')}
+        alertOnly={confirmModal.alertOnly}
         onConfirm={confirmModal.onConfirm}
         onCancel={() => setConfirmModal((s) => ({ ...s, visible: false }))}
         destructive={confirmModal.destructive}

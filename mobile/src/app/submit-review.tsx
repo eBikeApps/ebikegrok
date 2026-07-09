@@ -309,8 +309,8 @@ export default function SubmitReview() {
           visible={modal.visible}
           title={modal.title}
           message={modal.message}
-          confirmText={modal.onConfirm ? 'סגור' : 'סגור'}
-          cancelText="סגור"
+          alertOnly
+          confirmText="סגור"
           onConfirm={() => {
             setModal((s) => ({ ...s, visible: false }));
             modal.onConfirm?.();

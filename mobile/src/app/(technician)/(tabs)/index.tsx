@@ -19,6 +19,14 @@ import { registerForPushNotifications } from '@/lib/push-notifications';
 import { playSystemSound } from '@/lib/system-sounds';
 import { formatJobReference } from '@/lib/job-reference';
 import { dialPhoneNumber, openWhatsAppChat } from '@/lib/phone';
+import {
+  pingHeartbeat,
+  pingLocation,
+  setPresenceAuthToken,
+  startBackgroundPresence,
+  stopBackgroundPresence,
+} from '@/lib/technician-presence';
+import { reassertTechnicianAvailability } from '@/lib/technician-availability-sync';
 
 export default function TechnicianDashboardScreen() {
   const router = useRouter();
@@ -60,20 +68,48 @@ export default function TechnicianDashboardScreen() {
   useEffect(() => { registerForPushNotifications(); }, []);
 
   useEffect(() => {
-    if (isAvailable) {
-      requestLocationPermission();
-      const locationInterval = setInterval(async () => {
-        try {
-          const location = await Location.getCurrentPositionAsync({});
-          const newLocation = { latitude: location.coords.latitude, longitude: location.coords.longitude };
-          setCurrentLocation(newLocation);
-          await updateLocationInBackend(newLocation);
-        } catch (err) {
-          console.warn('[Location] Failed to update technician location:', err);
-        }
-      }, 30000);
-      return () => clearInterval(locationInterval);
+    if (!isAvailable) {
+      stopBackgroundPresence().catch(() => {});
+      return;
     }
+
+    let locationSubscription: Location.LocationSubscription | null = null;
+    let cancelled = false;
+
+    const startTracking = async () => {
+      await requestLocationPermission();
+      if (cancelled) return;
+
+      await startBackgroundPresence();
+
+      try {
+        locationSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 60_000,
+            distanceInterval: 50,
+          },
+          (location) => {
+            const newLocation = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            };
+            setCurrentLocation(newLocation);
+            updateLocationInBackend(newLocation);
+          }
+        );
+      } catch (err) {
+        console.warn('[Location] Failed to watch technician location:', err);
+      }
+    };
+
+    startTracking();
+
+    return () => {
+      cancelled = true;
+      locationSubscription?.remove();
+      stopBackgroundPresence().catch(() => {});
+    };
   }, [isAvailable]);
 
   // Fetch stats
@@ -181,6 +217,9 @@ export default function TechnicianDashboardScreen() {
   useEffect(() => {
     if (session?.session?.token) {
       cachedToken.current = session.session.token;
+      if (isAvailable) {
+        setPresenceAuthToken(session.session.token).catch(() => {});
+      }
     }
     if (!session?.user) return;
 
@@ -209,7 +248,7 @@ export default function TechnicianDashboardScreen() {
       } catch { /* silent */ }
     };
     recoverActiveJob();
-  }, [session?.user]);
+  }, [session?.user, isAvailable]);
 
   // Polling loop — 5s when available (was 3s; saves battery while still feeling responsive)
   useEffect(() => {
@@ -221,39 +260,45 @@ export default function TechnicianDashboardScreen() {
   useEffect(() => () => { if (bannerTimer.current) clearTimeout(bannerTimer.current); }, []);
 
   const sendHeartbeat = useCallback(async () => {
-    try {
-      if (!cachedToken.current) return;
-      if ((user as any)?.role !== 'technician') return;
-      await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/technicians/heartbeat`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${cachedToken.current}` },
-      });
-    } catch { /* silent */ }
-  }, [user]);
+    if (!isAvailable) return;
+    await pingHeartbeat();
+  }, [isAvailable]);
 
-  // AppState heartbeat: keep lastSeenAt fresh while app is open
+  const pushAvailabilityToServer = useCallback(async () => {
+    const token = cachedToken.current ?? session?.session?.token;
+    if (!token || !isAvailable) return;
+    cachedToken.current = token;
+    await reassertTechnicianAvailability(token);
+  }, [isAvailable, session?.session?.token]);
+
+  // Local toggle is source of truth — re-push to server on launch if still marked available
   useEffect(() => {
-    let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+    if (!session?.session?.token || !isAvailable) return;
+    pushAvailabilityToServer();
+  }, [session?.session?.token, isAvailable, pushAvailabilityToServer]);
 
-    const startHeartbeat = () => {
-      sendHeartbeat();
-      heartbeatInterval = setInterval(sendHeartbeat, 2 * 60 * 1000); // every 2 min
-    };
+  // Keep lastSeenAt fresh while marked available — including when screen is off / app in background
+  useEffect(() => {
+    if (!isAvailable) return;
 
-    const stopHeartbeat = () => {
-      if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
-    };
+    if (cachedToken.current) {
+      setPresenceAuthToken(cachedToken.current).catch(() => {});
+    }
 
-    // Start immediately (app is active when this mounts)
-    startHeartbeat();
+    sendHeartbeat();
+    const heartbeatInterval = setInterval(sendHeartbeat, 2 * 60 * 1000);
 
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
-      if (nextState === 'active') startHeartbeat();
-      else stopHeartbeat();
+      if (nextState === 'active') {
+        pushAvailabilityToServer();
+      }
     });
 
-    return () => { stopHeartbeat(); subscription.remove(); };
-  }, [sendHeartbeat]);
+    return () => {
+      clearInterval(heartbeatInterval);
+      subscription.remove();
+    };
+  }, [isAvailable, sendHeartbeat, pushAvailabilityToServer]);
 
   const requestLocationPermission = async () => {
     try {
@@ -286,11 +331,20 @@ export default function TechnicianDashboardScreen() {
     try {
       const sessionResult = await authClient.getSession();
       if (!sessionResult?.data?.session) return;
-      await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/technicians/availability`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${sessionResult.data.session.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isAvailable: value }),
-      });
+      const token = sessionResult.data.session.token;
+      cachedToken.current = token;
+
+      if (value) {
+        await reassertTechnicianAvailability(token);
+      } else {
+        await setPresenceAuthToken(null);
+        await stopBackgroundPresence();
+        await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/technicians/availability`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isAvailable: false }),
+        });
+      }
     } catch {}
   };
 
@@ -663,8 +717,8 @@ export default function TechnicianDashboardScreen() {
         visible={errorModal.visible}
         title={errorModal.title}
         message={errorModal.message}
+        alertOnly
         confirmText={t('close')}
-        cancelText={t('close')}
         onConfirm={() => setErrorModal((s) => ({ ...s, visible: false }))}
         onCancel={() => setErrorModal((s) => ({ ...s, visible: false }))}
       />

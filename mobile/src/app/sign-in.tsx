@@ -17,9 +17,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { authClient } from "@/lib/auth/auth-client";
-import { useInvalidateSession } from "@/lib/auth/use-session";
+import { refreshSessionAfterAuth } from "@/lib/auth/use-session";
 import { useQueryClient } from "@tanstack/react-query";
-import { SESSION_QUERY_KEY } from "@/lib/auth/use-session";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -35,7 +34,9 @@ import Animated, {
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
+import { BookOpen } from "lucide-react-native";
 import { playSystemSound } from "@/lib/system-sounds";
+import { useLanguageStore } from "@/lib/store";
 
 const { width } = Dimensions.get("window");
 
@@ -285,12 +286,12 @@ function SocialButton3D({
 }
 
 export default function SignIn() {
+  const t = useLanguageStore((s) => s.t);
   const [loadingProvider, setLoadingProvider] = useState<"google" | "apple" | "email" | null>(null);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorModal, setErrorModal] = useState({ visible: false, message: '' });
-  const invalidateSession = useInvalidateSession();
   const queryClient = useQueryClient();
 
   const handleEmailSignIn = async () => {
@@ -302,9 +303,15 @@ export default function SignIn() {
       if (result?.error) {
         setErrorModal({ visible: true, message: result.error.message || "אימייל או סיסמא שגויים" });
       } else {
-        queryClient.removeQueries({ queryKey: ['me'] });
-        await queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
-        router.replace("/");
+        const ready = await refreshSessionAfterAuth(queryClient);
+        if (ready) {
+          router.replace("/");
+        } else {
+          setErrorModal({
+            visible: true,
+            message: "ההתחברות הצליחה אך לא הצלחנו לטעון את הפרופיל. נסה שוב.",
+          });
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -344,8 +351,18 @@ export default function SignIn() {
         setErrorModal({ visible: true, message: errMsg || (provider === "google" ? "לא ניתן להתחבר עם Google." : "לא ניתן להתחבר עם Apple.") });
       } else {
         playSystemSound("success");
-        await invalidateSession();
-        router.replace("/");
+        const ready = await refreshSessionAfterAuth(queryClient);
+        if (ready) {
+          router.replace("/");
+        } else {
+          setErrorModal({
+            visible: true,
+            message:
+              provider === "google"
+                ? "ההתחברות עם Google הצליחה אך לא הצלחנו לטעון את הפרופיל. נסה שוב."
+                : "ההתחברות עם Apple הצליחה אך לא הצלחנו לטעון את הפרופיל. נסה שוב.",
+          });
+        }
       }
     } catch (err: unknown) {
       console.error("[SignIn] Social exception:", err);
@@ -391,6 +408,33 @@ export default function SignIn() {
 
             {/* Buttons — bottom */}
             <Animated.View style={contentAnimatedStyle}>
+              <Pressable
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.push("/welcome");
+                }}
+                accessibilityLabel={t("tutorialGuide")}
+                accessibilityRole="button"
+                style={{
+                  alignSelf: "center",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  marginBottom: 16,
+                  backgroundColor: "rgba(255,255,255,0.1)",
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.18)",
+                }}
+              >
+                <BookOpen size={12} color="rgba(255,255,255,0.75)" />
+                <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "600" }}>
+                  {t("tutorialGuide")}
+                </Text>
+              </Pressable>
+
               <Text
                 style={{
                   color: "rgba(255,255,255,0.5)",

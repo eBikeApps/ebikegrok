@@ -1,9 +1,33 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { authClient } from "./auth-client";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const SESSION_QUERY_KEY = ["auth-session"] as const;
+
+type SessionData = Awaited<ReturnType<typeof authClient.getSession>>["data"];
+
+/**
+ * After OAuth / sign-in, wait until the session cookie is readable and cached
+ * before navigating away — otherwise index sees null and bounces to /sign-in.
+ */
+export async function refreshSessionAfterAuth(queryClient: QueryClient): Promise<boolean> {
+  queryClient.removeQueries({ queryKey: ["me"] });
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
+    const cached = queryClient.getQueryData<SessionData>(SESSION_QUERY_KEY);
+    if (cached?.user) return true;
+    await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+  }
+
+  const result = await authClient.getSession();
+  if (result.data?.user) {
+    queryClient.setQueryData(SESSION_QUERY_KEY, result.data);
+    return true;
+  }
+  return false;
+}
 
 export const useSession = () => {
   return useQuery({

@@ -20,6 +20,7 @@ import {
   MapPin,
   ChevronDown,
   Search,
+  Bookmark,
 } from 'lucide-react-native';
 
 const ISRAELI_CITIES = [
@@ -57,6 +58,10 @@ import { api } from '@/lib/api/api';
 import { fetchSavedAddresses, createSavedAddress } from '@/lib/saved-addresses-api';
 import { SavedAddress } from '@/lib/types';
 import { geocodeCustomerAddress } from '@/lib/geocode-address';
+import {
+  loadRepairCustomerDefaults,
+  saveRepairCustomerDefaults,
+} from '@/lib/repair-customer-defaults';
 import { BikeType, RepairCategory, REPAIR_CATEGORIES, PRICE_RANGES } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { gradients } from '@/lib/brand-colors';
@@ -113,6 +118,8 @@ function RepairRequestScreen() {
 
   const { data: session } = useSession();
   const draftRestored = useRef(false);
+  const defaultsLoadedForUser = useRef<string | null>(null);
+  const skipStreetResetOnCityChange = useRef(false);
   const [nameError, setNameError] = useState(false);
   const [phoneError, setPhoneError] = useState(false);
   const [emailError, setEmailError] = useState(false);
@@ -129,8 +136,40 @@ function RepairRequestScreen() {
   const [availableStreets, setAvailableStreets] = useState<string[]>([]);
   const [streetsLoading, setStreetsLoading] = useState(false);
   const [geocodingAddress, setGeocodingAddress] = useState(false);
+  const [addressResolveError, setAddressResolveError] = useState('');
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
+  const [savingDefaults, setSavingDefaults] = useState(false);
+  const [defaultsSavedBanner, setDefaultsSavedBanner] = useState(false);
+
+  const applyCustomerFields = (fields: {
+    customerName?: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    customerCity?: string;
+    customerStreet?: string;
+    customerHouseNumber?: string;
+    customerLocationLat?: number | null;
+    customerLocationLng?: number | null;
+    problemDescription?: string;
+  }) => {
+    if (fields.customerName) setCustomerName(fields.customerName);
+    if (fields.customerPhone) setCustomerPhone(fields.customerPhone);
+    if (fields.customerEmail) setCustomerEmail(fields.customerEmail);
+    if (fields.customerCity) {
+      skipStreetResetOnCityChange.current = true;
+      setCustomerCity(fields.customerCity);
+    }
+    if (fields.customerStreet) setCustomerStreet(fields.customerStreet);
+    if (fields.customerHouseNumber) setCustomerHouseNumber(fields.customerHouseNumber);
+    if (fields.problemDescription) setProblemDescription(fields.problemDescription);
+    if (fields.customerLocationLat != null && fields.customerLocationLng != null) {
+      setCustomerLocation({
+        latitude: fields.customerLocationLat,
+        longitude: fields.customerLocationLng,
+      });
+    }
+  };
 
   useEffect(() => {
     fetchSavedAddresses().then(setSavedAddresses).catch(() => {});
@@ -139,51 +178,62 @@ function RepairRequestScreen() {
   useEffect(() => {
     if (draftRestored.current) return;
     draftRestored.current = true;
-    AsyncStorage.getItem(DRAFT_KEY)
-      .then((raw) => {
-        if (!raw) return;
-        const draft = JSON.parse(raw) as RepairDraft;
-        if (draft.currentStep) setStep(draft.currentStep);
-        if (draft.photoUri !== undefined) setPhotoUri(draft.photoUri);
-        if (draft.bikeType) setBikeType(draft.bikeType);
-        if (draft.categories?.length) {
-          draft.categories.forEach((cat) => {
-            if (!useRepairRequestStore.getState().categories.includes(cat)) {
-              useRepairRequestStore.getState().toggleCategory(cat);
-            }
-          });
+
+    const init = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DRAFT_KEY);
+        if (raw) {
+          const draft = JSON.parse(raw) as RepairDraft;
+          if (draft.currentStep) setStep(draft.currentStep);
+          if (draft.photoUri !== undefined) setPhotoUri(draft.photoUri);
+          if (draft.bikeType) setBikeType(draft.bikeType);
+          if (draft.categories?.length) {
+            draft.categories.forEach((cat) => {
+              if (!useRepairRequestStore.getState().categories.includes(cat)) {
+                useRepairRequestStore.getState().toggleCategory(cat);
+              }
+            });
+          }
+          applyCustomerFields(draft);
         }
-        if (draft.problemDescription) setProblemDescription(draft.problemDescription);
-        if (draft.customerName) setCustomerName(draft.customerName);
-        if (draft.customerPhone) setCustomerPhone(draft.customerPhone);
-        if (draft.customerEmail) setCustomerEmail(draft.customerEmail);
-        if (draft.customerCity) setCustomerCity(draft.customerCity);
-        if (draft.customerStreet) setCustomerStreet(draft.customerStreet);
-        if (draft.customerHouseNumber) setCustomerHouseNumber(draft.customerHouseNumber);
-        if (draft.customerLocationLat != null && draft.customerLocationLng != null) {
-          setCustomerLocation({ latitude: draft.customerLocationLat, longitude: draft.customerLocationLng });
-        }
-      })
-      .catch(() => {});
+      } catch {
+        // ignore corrupt draft
+      }
+    };
+
+    init();
   }, []);
 
   useEffect(() => {
-    if (!session?.user) return;
-    const state = useRepairRequestStore.getState();
-    if (!state.customerName.trim() && session.user.name) {
-      setCustomerName(session.user.name);
-    }
-    if (!state.customerEmail.trim() && session.user.email) {
-      setCustomerEmail(session.user.email);
-    }
-    api.get<{ user: { phone?: string } }>('/api/me')
-      .then((me) => {
+    const userId = session?.user?.id;
+    if (!userId || defaultsLoadedForUser.current === userId) return;
+    defaultsLoadedForUser.current = userId;
+
+    const fillFromSaved = async () => {
+      const saved = await loadRepairCustomerDefaults(userId);
+      if (saved) {
+        applyCustomerFields(saved);
+      }
+
+      const state = useRepairRequestStore.getState();
+      if (!state.customerName.trim() && session?.user?.name) {
+        setCustomerName(session.user.name);
+      }
+      if (!state.customerEmail.trim() && session?.user?.email) {
+        setCustomerEmail(session.user.email);
+      }
+      try {
+        const me = await api.get<{ user: { phone?: string } }>('/api/me');
         if (!useRepairRequestStore.getState().customerPhone.trim() && me.user?.phone) {
           setCustomerPhone(me.user.phone.replace(/\D/g, '').slice(0, 10));
         }
-      })
-      .catch(() => {});
-  }, [session?.user]);
+      } catch {
+        // non-blocking
+      }
+    };
+
+    fillFromSaved();
+  }, [session?.user?.id]);
 
   useEffect(() => {
     const draft: RepairDraft = {
@@ -221,7 +271,13 @@ function RepairRequestScreen() {
       setAvailableStreets([]);
       return;
     }
-    setCustomerStreet('');
+    if (skipStreetResetOnCityChange.current) {
+      skipStreetResetOnCityChange.current = false;
+    } else {
+      setCustomerStreet('');
+      setSelectedSavedId(null);
+      setAddressResolveError('');
+    }
     setStreetsLoading(true);
     const fetchStreets = async () => {
       try {
@@ -264,26 +320,44 @@ function RepairRequestScreen() {
   };
 
   const resolveAddressLocation = async (): Promise<boolean> => {
+    setAddressResolveError('');
     setGeocodingAddress(true);
     try {
-      const location = await geocodeCustomerAddress({
+      const saved = selectedSavedId
+        ? savedAddresses.find((a) => a.id === selectedSavedId)
+        : null;
+      if (
+        saved?.location &&
+        saved.city === customerCity &&
+        saved.street === customerStreet &&
+        saved.houseNumber === customerHouseNumber
+      ) {
+        setCustomerLocation(saved.location);
+        return true;
+      }
+
+      const result = await geocodeCustomerAddress({
         city: customerCity,
         street: customerStreet,
         houseNumber: customerHouseNumber,
       });
-      if (!location) {
-        playSystemSound('error');
-        setInfoModal({
-          visible: true,
-          title: t('error'),
-          message:
-            language === 'he'
-              ? 'לא מצאנו את הכתובת. בדוק עיר, רחוב ומספר בית ונסה שוב.'
-              : 'Could not find that address. Check city, street and house number.',
-        });
+
+      if (!result.ok) {
+        const message =
+          result.reason === 'not_found'
+            ? t('addressNotFoundHint')
+            : result.reason === 'network'
+              ? t('networkError')
+              : t('addressServiceUnavailable');
+        setAddressResolveError(message);
+        setCityError(true);
+        setStreetError(true);
+        setHouseNumberError(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return false;
       }
-      setCustomerLocation(location);
+
+      setCustomerLocation(result.location);
       const exists = savedAddresses.some(
         (a) =>
           a.city === customerCity &&
@@ -297,8 +371,8 @@ function RepairRequestScreen() {
             city: customerCity,
             street: customerStreet,
             houseNumber: customerHouseNumber,
-            latitude: location.latitude,
-            longitude: location.longitude,
+            latitude: result.location.latitude,
+            longitude: result.location.longitude,
             isDefault: savedAddresses.length === 0,
           });
           setSavedAddresses(updated);
@@ -308,15 +382,101 @@ function RepairRequestScreen() {
       }
       return true;
     } catch {
-      playSystemSound('error');
-      setInfoModal({
-        visible: true,
-        title: t('error'),
-        message: t('networkError'),
-      });
+      setAddressResolveError(t('networkError'));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return false;
     } finally {
       setGeocodingAddress(false);
+    }
+  };
+
+  const handleSaveDefaults = async () => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setInfoModal({
+        visible: true,
+        title: t('error'),
+        message: language === 'he' ? 'יש להתחבר כדי לשמור פרטים' : 'Sign in to save your details',
+      });
+      return;
+    }
+
+    let hasError = false;
+    if (!customerName.trim()) {
+      setNameError(true);
+      hasError = true;
+    }
+    const phoneDigits = customerPhone.replace(/\D/g, '');
+    if (!customerPhone.trim() || phoneDigits.length !== 10 || !phoneDigits.startsWith('0')) {
+      setPhoneError(true);
+      hasError = true;
+    }
+    if (!customerCity.trim()) {
+      setCityError(true);
+      hasError = true;
+    }
+    if (!customerStreet.trim()) {
+      setStreetError(true);
+      hasError = true;
+    }
+    if (!customerHouseNumber.trim()) {
+      setHouseNumberError(true);
+      hasError = true;
+    }
+    if (customerEmail.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(customerEmail)) {
+        setEmailError(true);
+        hasError = true;
+      }
+    }
+    if (hasError) return;
+
+    setSavingDefaults(true);
+    setAddressResolveError('');
+    try {
+      let lat = useRepairRequestStore.getState().customerLocationLat;
+      let lng = useRepairRequestStore.getState().customerLocationLng;
+
+      if (lat == null || lng == null) {
+        const geo = await geocodeCustomerAddress({
+          city: customerCity,
+          street: customerStreet,
+          houseNumber: customerHouseNumber,
+        });
+        if (!geo.ok) {
+          setAddressResolveError(
+            geo.reason === 'not_found' ? t('addressNotFoundHint') : t('addressServiceUnavailable')
+          );
+          setCityError(true);
+          setStreetError(true);
+          setHouseNumberError(true);
+          return;
+        }
+        setCustomerLocation(geo.location);
+        lat = geo.location.latitude;
+        lng = geo.location.longitude;
+      }
+
+      await saveRepairCustomerDefaults(userId, {
+        customerName: customerName.trim(),
+        customerPhone,
+        customerEmail: customerEmail.trim(),
+        customerCity,
+        customerStreet,
+        customerHouseNumber,
+        customerLocationLat: lat,
+        customerLocationLng: lng,
+        problemDescription: problemDescription.trim(),
+      });
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setDefaultsSavedBanner(true);
+      setTimeout(() => setDefaultsSavedBanner(false), 4000);
+    } catch {
+      setAddressResolveError(t('networkError'));
+    } finally {
+      setSavingDefaults(false);
     }
   };
 
@@ -738,13 +898,17 @@ function RepairRequestScreen() {
                 onPress={() => {
                   Haptics.selectionAsync();
                   setSelectedSavedId(addr.id);
-                  if (addr.city) setCustomerCity(addr.city);
+                  if (addr.city) {
+                    skipStreetResetOnCityChange.current = true;
+                    setCustomerCity(addr.city);
+                  }
                   if (addr.street) setCustomerStreet(addr.street);
                   if (addr.houseNumber) setCustomerHouseNumber(addr.houseNumber);
                   if (addr.location) setCustomerLocation(addr.location);
                   setCityError(false);
                   setStreetError(false);
                   setHouseNumberError(false);
+                  setAddressResolveError('');
                 }}
                 className={cn(
                   'px-4 py-3 rounded-xl border',
@@ -901,6 +1065,8 @@ function RepairRequestScreen() {
               onChangeText={(text) => {
                 const cleaned = text.replace(/[^0-9A-Za-z\u0590-\u05FF\s/-]/g, '').slice(0, 8);
                 setCustomerHouseNumber(cleaned);
+                setSelectedSavedId(null);
+                setAddressResolveError('');
                 if (cleaned.trim()) setHouseNumberError(false);
               }}
               placeholder="לדוגמה: 12 או 12א"
@@ -914,6 +1080,12 @@ function RepairRequestScreen() {
             )}
           </View>
         </View>
+
+        {addressResolveError ? (
+          <View className="mt-3 mx-1 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <Text className="text-amber-900 text-sm text-right leading-5">{addressResolveError}</Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Customer Email (Optional) */}
@@ -946,6 +1118,7 @@ function RepairRequestScreen() {
           <Text className="text-red-500 text-sm mt-1 px-2">{t('invalidEmail')}</Text>
         )}
       </View>
+
     </Animated.View>
   );
 
@@ -986,6 +1159,30 @@ function RepairRequestScreen() {
         {currentStep === 1 && (
           <Pressable onPress={handleSkipPhoto} className="mb-3 py-3 items-center">
             <Text className="text-gray-500 font-semibold text-base">{t('skipPhoto')}</Text>
+          </Pressable>
+        )}
+        {currentStep === 3 && defaultsSavedBanner && (
+          <View className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+            <Text className="text-emerald-800 text-sm text-right leading-5">{t('detailsSavedSuccess')}</Text>
+          </View>
+        )}
+        {currentStep === 3 && (
+          <Pressable
+            onPress={handleSaveDefaults}
+            disabled={savingDefaults || geocodingAddress}
+            className={cn(
+              'flex-row items-center justify-center gap-2 py-3.5 rounded-xl border-2 border-blue-200 bg-blue-50 mb-3',
+              (savingDefaults || geocodingAddress) && 'opacity-50'
+            )}
+          >
+            {savingDefaults ? (
+              <Text className="text-blue-700 font-semibold text-base">{language === 'he' ? 'שומר…' : 'Saving…'}</Text>
+            ) : (
+              <>
+                <Bookmark size={18} color="#2563EB" />
+                <Text className="text-blue-700 font-semibold text-base">{t('saveDetailsForNextTime')}</Text>
+              </>
+            )}
           </Pressable>
         )}
         <Pressable
@@ -1134,8 +1331,8 @@ function RepairRequestScreen() {
         visible={infoModal.visible}
         title={infoModal.title}
         message={infoModal.message}
+        alertOnly
         confirmText={t('close')}
-        cancelText={t('close')}
         onConfirm={() => setInfoModal((s) => ({ ...s, visible: false }))}
         onCancel={() => setInfoModal((s) => ({ ...s, visible: false }))}
       />

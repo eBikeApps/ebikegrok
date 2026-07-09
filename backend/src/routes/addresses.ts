@@ -1,6 +1,10 @@
 import { Hono } from "hono";
-import { prisma } from "../prisma";
 import { randomUUID } from "crypto";
+import {
+  fetchUserSavedAddresses,
+  writeUserSavedAddresses,
+  type SavedAddressRow,
+} from "../lib/saved-addresses-db";
 
 type AddressEnv = {
   Variables: {
@@ -8,27 +12,18 @@ type AddressEnv = {
   };
 };
 
-export type SavedAddressRecord = {
-  id: string;
-  label: string;
-  city: string;
-  street: string;
-  houseNumber: string;
+export type SavedAddressRecord = SavedAddressRow & {
   latitude: number;
   longitude: number;
-  isDefault?: boolean;
 };
 
-function parseAddresses(raw: unknown): SavedAddressRecord[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (a) =>
-      a &&
-      typeof a === "object" &&
-      typeof (a as SavedAddressRecord).id === "string" &&
-      typeof (a as SavedAddressRecord).city === "string" &&
-      typeof (a as SavedAddressRecord).street === "string"
-  ) as SavedAddressRecord[];
+function toRecord(row: SavedAddressRow): SavedAddressRecord | null {
+  if (typeof row.latitude !== "number" || typeof row.longitude !== "number") return null;
+  return row as SavedAddressRecord;
+}
+
+function parseRecords(rows: SavedAddressRow[]): SavedAddressRecord[] {
+  return rows.map(toRecord).filter((a): a is SavedAddressRecord => a !== null);
 }
 
 export const addressesRouter = new Hono<AddressEnv>();
@@ -37,11 +32,8 @@ addressesRouter.get("/", async (c) => {
   const user = c.get("user");
   if (!user) return c.body(null, 401);
 
-  const row = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { savedAddresses: true },
-  });
-  return c.json({ addresses: parseAddresses(row?.savedAddresses) });
+  const rows = await fetchUserSavedAddresses(user.id);
+  return c.json({ addresses: parseRecords(rows) });
 });
 
 addressesRouter.post("/", async (c) => {
@@ -58,11 +50,7 @@ addressesRouter.post("/", async (c) => {
     return c.json({ message: "latitude and longitude are required" }, 400);
   }
 
-  const row = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { savedAddresses: true },
-  });
-  const existing = parseAddresses(row?.savedAddresses);
+  const existing = parseRecords(await fetchUserSavedAddresses(user.id));
   const newAddr: SavedAddressRecord = {
     id: randomUUID(),
     label: (label ?? "בית").trim(),
@@ -79,10 +67,12 @@ addressesRouter.post("/", async (c) => {
     updated = updated.map((a) => ({ ...a, isDefault: a.id === newAddr.id }));
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { savedAddresses: updated },
-  });
+  try {
+    await writeUserSavedAddresses(user.id, updated);
+  } catch (err) {
+    console.error("[Addresses] write failed:", err);
+    return c.json({ message: "Could not save address" }, 500);
+  }
 
   return c.json({ address: newAddr, addresses: updated });
 });
@@ -94,11 +84,7 @@ addressesRouter.patch("/:id", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json();
 
-  const row = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { savedAddresses: true },
-  });
-  const existing = parseAddresses(row?.savedAddresses);
+  const existing = parseRecords(await fetchUserSavedAddresses(user.id));
   const idx = existing.findIndex((a) => a.id === id);
   if (idx < 0) return c.json({ message: "Address not found" }, 404);
 
@@ -119,10 +105,12 @@ addressesRouter.patch("/:id", async (c) => {
     updated = updated.map((a) => ({ ...a, isDefault: a.id === merged.id }));
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { savedAddresses: updated },
-  });
+  try {
+    await writeUserSavedAddresses(user.id, updated);
+  } catch (err) {
+    console.error("[Addresses] update failed:", err);
+    return c.json({ message: "Could not update address" }, 500);
+  }
 
   return c.json({ address: merged, addresses: updated });
 });
@@ -132,20 +120,18 @@ addressesRouter.delete("/:id", async (c) => {
   if (!user) return c.body(null, 401);
 
   const id = c.req.param("id");
-  const row = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { savedAddresses: true },
-  });
-  const existing = parseAddresses(row?.savedAddresses);
+  const existing = parseRecords(await fetchUserSavedAddresses(user.id));
   const updated = existing.filter((a) => a.id !== id);
   if (updated.length === existing.length) {
     return c.json({ message: "Address not found" }, 404);
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { savedAddresses: updated },
-  });
+  try {
+    await writeUserSavedAddresses(user.id, updated);
+  } catch (err) {
+    console.error("[Addresses] delete failed:", err);
+    return c.json({ message: "Could not delete address" }, 500);
+  }
 
   return c.json({ addresses: updated });
 });

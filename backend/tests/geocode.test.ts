@@ -1,5 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { buildIsraeliAddress, parseGeocodeResponse } from "../src/lib/geocode";
+import {
+  buildIsraeliAddress,
+  buildIsraeliAddressVariants,
+  parseGeocodeResponse,
+} from "../src/lib/geocode";
 
 describe("geocode helpers", () => {
   test("buildIsraeliAddress combines street, house number and city", () => {
@@ -32,5 +36,16 @@ describe("geocode helpers", () => {
 
   test("parseGeocodeResponse returns null for zero results", () => {
     expect(parseGeocodeResponse({ status: "ZERO_RESULTS", results: [] })).toBeNull();
+  });
+
+  test("buildIsraeliAddressVariants includes Hebrew and street-prefix fallbacks", () => {
+    const variants = buildIsraeliAddressVariants({
+      city: "רמת גן",
+      street: "ביאליק",
+      houseNumber: "12",
+    });
+    expect(variants).toContain("ביאליק 12, רמת גן, Israel");
+    expect(variants.some((v) => v.includes("ישראל"))).toBe(true);
+    expect(variants.some((v) => v.startsWith("רחוב"))).toBe(true);
   });
 });

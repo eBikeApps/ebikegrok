@@ -29,7 +29,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLanguageStore, useTechnicianStore, useAppThemeStore } from '@/lib/store';
 import { applyRtlForLanguage } from '@/lib/rtl';
 import { getThemeColors } from '@/lib/theme-colors';
-import * as Updates from 'expo-updates';
+import { reloadApp } from '@/lib/reload-app';
 import { cn } from '@/lib/cn';
 import { useSession, useSignOut, SESSION_QUERY_KEY } from '@/lib/auth/use-session';
 import { authClient } from '@/lib/auth/auth-client';
@@ -136,11 +136,7 @@ export default function TechnicianProfileScreen() {
     setLanguage(next);
     const needsReload = applyRtlForLanguage(next);
     if (needsReload) {
-      try {
-        await Updates.reloadAsync();
-      } catch {
-        // user may restart manually
-      }
+      await reloadApp();
     }
   };
 
@@ -547,20 +543,19 @@ export default function TechnicianProfileScreen() {
         visible={showSignOutModal}
         title={t('signOut')}
         message={t('signOutConfirmMsg')}
-        confirmText={t('confirm')}
+        confirmText={t('signOut')}
         cancelText={t('cancel')}
         onConfirm={confirmSignOut}
         onCancel={() => setShowSignOutModal(false)}
         destructive
-        centered
       />
 
       <ConfirmModal
         visible={showPhotoErrorModal}
         title={t('error')}
         message={t('photoUploadError')}
+        alertOnly
         confirmText={t('close')}
-        cancelText={t('close')}
         onConfirm={() => setShowPhotoErrorModal(false)}
         onCancel={() => setShowPhotoErrorModal(false)}
       />

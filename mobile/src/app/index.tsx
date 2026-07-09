@@ -14,7 +14,7 @@ type MeResponse = {
 };
 
 export default function Index() {
-  const { data: session, isLoading: sessionLoading } = useSession();
+  const { data: session, isLoading: sessionLoading, isFetching: sessionFetching } = useSession();
   const [welcomeChecked, setWelcomeChecked] = useState(false);
   const [seenWelcome, setSeenWelcome] = useState(true);
 
@@ -38,7 +38,12 @@ export default function Index() {
     staleTime: 1000 * 60 * 5,
   });
 
-  if (sessionLoading || !welcomeChecked || (session?.user && meLoading)) {
+  if (
+    sessionLoading ||
+    (sessionFetching && !session?.user) ||
+    !welcomeChecked ||
+    (session?.user && meLoading)
+  ) {
     return null;
   }
 
