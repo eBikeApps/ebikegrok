@@ -9,8 +9,8 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vibecode.ebike-ygbeu0",
-      "buildNumber": "22",
+      "bundleIdentifier": "com.ebikeland.app",
+      "buildNumber": "23",
       "infoPlist": {
         "NSCameraUsageDescription": "eBike uses the camera to capture photos inside the app before you publish them.",
         "NSPhotoLibraryUsageDescription": "eBike accesses your photo library to let you choose media that appears in the app.",
@@ -26,7 +26,7 @@
     "android": {
       "edgeToEdgeEnabled": true,
       "package": "com.ebike.app",
-      "versionCode": 22,
+      "versionCode": 23,
       "adaptiveIcon": {
         "foregroundImage": "./icon.png",
         "backgroundColor": "#ffffff"
