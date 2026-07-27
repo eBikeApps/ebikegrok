@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto";
 
-export type PaymentProvider = "mock";
+export type PaymentProvider = "mock" | "payme";
 
 /** Mock checkout when MOCK_PAYMENTS is enabled or no real provider is configured. */
 export function isMockPaymentsMode(): boolean {
@@ -10,7 +10,9 @@ export function isMockPaymentsMode(): boolean {
 }
 
 export function getActivePaymentProvider(): PaymentProvider {
-  return "mock";
+  if (isMockPaymentsMode()) return "mock";
+  // If not mock, assume PayMe is configured
+  return "payme";
 }
 
 export function createMockToken(): string {
@@ -31,7 +33,7 @@ export function decodeMockRef(ref: string | null | undefined): { kind: "job" | "
 }
 
 export function mockCheckoutUrl(backendUrl: string, token: string, kind: "job" | "extra" = "job"): string {
-  const base = backendUrl.replace(/\/$/, "");
+  const base = (backendUrl || "https://ebikel-backend.onrender.com").replace(/\/$/, "");
   return `${base}/api/payments/mock/checkout?token=${encodeURIComponent(token)}&kind=${kind}`;
 }
 

@@ -11,20 +11,26 @@ import {
   mockCheckoutUrl,
   renderMockCheckoutPage,
 } from "../lib/mock-payments";
+import {
+  createPaymeSale,
+  isPaymeConfigured,
+  verifyPaymeNotify,
+} from "../lib/payme";
 import { formatJobReference } from "../lib/job-reference";
 
 type HonoEnv = { Variables: { user: any; session: any } };
 
 const paymentsRouter = new Hono<HonoEnv>();
 
-/** Public URL for checkout redirects — matches the host the app actually calls when BACKEND_URL drifts. */
+/** Public URL for checkout redirects — never return empty (breaks mockCheckoutUrl / PayMe callbacks). */
 function resolvePublicBackendUrl(c: { req: { header: (name: string) => string | undefined } }): string {
-  const configured = (process.env.BACKEND_URL ?? "").replace(/\/$/, "");
+  const configured = (process.env.BACKEND_URL ?? "").trim().replace(/\/$/, "");
   if (configured) return configured;
-  const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
-  const proto = c.req.header("x-forwarded-proto") ?? "http";
+  const host = (c.req.header("x-forwarded-host") ?? c.req.header("host") ?? "").trim();
+  const proto = (c.req.header("x-forwarded-proto") ?? "https").trim() || "https";
   if (host) return `${proto}://${host}`;
-  return "http://127.0.0.1:3001";
+  // Safe production default when env/host headers missing
+  return "https://ebikel-backend.onrender.com";
 }
 
 // B27 FIX: validate commission rate at startup
@@ -79,17 +85,57 @@ paymentsRouter.post("/create", async (c) => {
   }
 
   try {
-    const amount = job.finalPrice ?? job.estimatedPriceMin;
+    // Prefer final → max → min so amount is never null/undefined for prisma Int fields
+    const rawAmount = job.finalPrice ?? job.estimatedPriceMax ?? job.estimatedPriceMin;
+    const amount = Math.round(Number(rawAmount));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return c.json({ error: "סכום התשלום לא תקין להזמנה זו" }, 400);
+    }
     const commission = Math.round(amount * COMMISSION_RATE);
     const backendUrl = resolvePublicBackendUrl(c);
 
-    if (!isMockPaymentsMode()) {
-      return c.json({ error: "מערכת התשלומים טרם הוגדרה" }, 503);
+    let paymentUrl = "";
+    let transactionRef = "";
+    let provider: "mock" | "payme" = "mock";
+    let isMock = isMockPaymentsMode();
+
+    if (!isMock && isPaymeConfigured()) {
+      try {
+        const jobReference = formatJobReference(job.jobNumber);
+        const successUrl = `${backendUrl}/api/payments/success?jobId=${jobId}`;
+        const cancelUrl = `${backendUrl}/api/payments/cancel?jobId=${jobId}`;
+        const notifyUrl = `${backendUrl}/api/payments/payme/notify`;
+
+        const sale = await createPaymeSale({
+          amount,
+          description: `תיקון אופניים ${jobReference}`,
+          reference: job.id,
+          successUrl,
+          cancelUrl,
+          notifyUrl,
+        });
+
+        paymentUrl = sale.paymentUrl;
+        transactionRef = sale.saleId;
+        provider = "payme";
+      } catch (paymeErr) {
+        // Keep checkout working for TestFlight while PayMe is unfinished
+        console.error("[Payments] PayMe failed — falling back to mock:", paymeErr);
+        isMock = true;
+        provider = "mock";
+      }
     }
 
-    const token = createMockToken();
-    const paymentUrl = mockCheckoutUrl(backendUrl, token, "job");
-    const mockRef = encodeMockRef(token, "job");
+    if (provider === "mock") {
+      const token = createMockToken();
+      paymentUrl = mockCheckoutUrl(backendUrl, token, "job");
+      transactionRef = encodeMockRef(token, "job");
+      isMock = true;
+    }
+
+    if (!paymentUrl) {
+      return c.json({ error: "לא ניתן ליצור דף תשלום" }, 500);
+    }
 
     await prisma.payment.upsert({
       where: { jobId },
@@ -99,7 +145,7 @@ paymentsRouter.post("/create", async (c) => {
         commissionAmount: commission,
         netAmount: amount - commission,
         status: "pending",
-        growTransactionCode: mockRef,
+        growTransactionCode: transactionRef,
       },
       create: {
         jobId,
@@ -108,17 +154,17 @@ paymentsRouter.post("/create", async (c) => {
         netAmount: amount - commission,
         paymentUrl,
         status: "pending",
-        growTransactionCode: mockRef,
+        growTransactionCode: transactionRef,
       },
     });
 
     const jobReference = formatJobReference(job.jobNumber);
-    console.log("[Payments] Mock checkout created for job", jobReference);
+    console.log(`[Payments] ${provider} checkout created for job`, jobReference, "backendUrl=", backendUrl);
     return c.json({
       paymentUrl,
       amount,
-      mockMode: true,
-      provider: "mock",
+      mockMode: isMock,
+      provider,
       jobNumber: job.jobNumber,
       jobReference,
       description: `תיקון אופניים ${jobReference}`,
@@ -126,7 +172,7 @@ paymentsRouter.post("/create", async (c) => {
   } catch (err: any) {
     const message = typeof err?.message === "string" ? err.message : "Internal server error";
     console.error("[Payments] create error:", err);
-    return c.json({ error: message }, 500);
+    return c.json({ error: message || "Internal server error" }, 500);
   }
 });
 
@@ -287,14 +333,59 @@ paymentsRouter.get("/mock/cancel", async (c) => {
   );
 });
 
+// PayMe server-to-server notify (webhook)
+paymentsRouter.post("/payme/notify", async (c) => {
+  try {
+    const body = await c.req.json();
+    console.log("[PayMe] notify received", body);
+
+    if (!verifyPaymeNotify(body)) {
+      return c.json({ ok: false }, 400);
+    }
+
+    const saleId = body.sale_id || body.id || body.reference;
+    if (!saleId) return c.json({ ok: true });
+
+    const payment = await prisma.payment.findFirst({
+      where: { growTransactionCode: saleId },
+    });
+
+    if (!payment) {
+      console.warn("[PayMe] no payment found for sale", saleId);
+      return c.json({ ok: true });
+    }
+
+    const isPaid =
+      body.status === "paid" ||
+      body.status === "completed" ||
+      body.paid === true ||
+      body.success === true;
+
+    if (isPaid) {
+      const paySum = typeof body.amount === "number" ? body.amount / 100 : payment.amount;
+      await markMainJobPaid({
+        jobId: payment.jobId,
+        transactionId: `payme:${saleId}`,
+        paymentSum: paySum,
+      });
+    }
+
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error("[PayMe] notify error", err);
+    return c.json({ ok: false }, 500);
+  }
+});
+
 async function syncJobPaymentOnSuccess(jobId: string) {
   const payment = await prisma.payment.findUnique({ where: { jobId } });
   if (!payment) return;
 
-  if (payment.growTransactionCode?.startsWith("mock:") && payment.status === "pending") {
+  const ref = payment.growTransactionCode || "";
+  if ((ref.startsWith("mock:") || ref.startsWith("payme:")) && payment.status === "pending") {
     await markMainJobPaid({
       jobId,
-      transactionId: payment.growTransactionCode,
+      transactionId: ref,
       paymentSum: payment.amount,
     });
   }
