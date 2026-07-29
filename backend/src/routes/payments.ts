@@ -333,39 +333,69 @@ paymentsRouter.get("/mock/cancel", async (c) => {
   );
 });
 
-// PayMe server-to-server notify (webhook)
+// PayMe server-to-server notify (webhook / sale_callback_url)
 paymentsRouter.post("/payme/notify", async (c) => {
   try {
-    const body = await c.req.json();
+    // PayMe may send JSON or form-urlencoded
+    let body: any = {};
+    const ct = c.req.header("content-type") || "";
+    if (ct.includes("application/json")) {
+      body = await c.req.json();
+    } else {
+      try {
+        body = await c.req.parseBody();
+      } catch {
+        body = await c.req.json().catch(() => ({}));
+      }
+    }
     console.log("[PayMe] notify received", body);
 
     if (!verifyPaymeNotify(body)) {
       return c.json({ ok: false }, 400);
     }
 
-    const saleId = body.sale_id || body.id || body.reference;
+    const saleId =
+      body.payme_sale_id ||
+      body.sale_id ||
+      body.payme_sale_code ||
+      body.transaction_id ||
+      body.reference ||
+      body.id;
     if (!saleId) return c.json({ ok: true });
 
+    const saleIdStr = String(saleId);
     const payment = await prisma.payment.findFirst({
-      where: { growTransactionCode: saleId },
+      where: {
+        OR: [
+          { growTransactionCode: saleIdStr },
+          { growTransactionCode: { contains: saleIdStr } },
+        ],
+      },
     });
 
     if (!payment) {
-      console.warn("[PayMe] no payment found for sale", saleId);
+      console.warn("[PayMe] no payment found for sale", saleIdStr);
       return c.json({ ok: true });
     }
 
+    const status = String(body.sale_status || body.status || "").toLowerCase();
     const isPaid =
-      body.status === "paid" ||
-      body.status === "completed" ||
+      status === "paid" ||
+      status === "completed" ||
+      status === "success" ||
+      body.sale_paid === true ||
+      body.sale_paid === "true" ||
+      body.sale_paid === 1 ||
       body.paid === true ||
       body.success === true;
 
     if (isPaid) {
-      const paySum = typeof body.amount === "number" ? body.amount / 100 : payment.amount;
+      const rawPrice = typeof body.price === "number" ? body.price : typeof body.amount === "number" ? body.amount : null;
+      // PayMe prices are usually agorot
+      const paySum = rawPrice != null ? rawPrice / 100 : payment.amount;
       await markMainJobPaid({
         jobId: payment.jobId,
-        transactionId: `payme:${saleId}`,
+        transactionId: `payme:${saleIdStr}`,
         paymentSum: paySum,
       });
     }
