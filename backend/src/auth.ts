@@ -88,6 +88,16 @@ export const auth = betterAuth({
     enabled: true,
     window: 60,
     max: 30,
+    storage: "memory",
+  },
+
+  logger: {
+    level: "error",
+  },
+  onAPIError: {
+    onError(error) {
+      console.error("[BetterAuth] API error", error);
+    },
   },
 
   emailAndPassword: {
@@ -124,7 +134,8 @@ export const auth = betterAuth({
   trustedOrigins: [
     "vibecode://", // Mobile deep links — expo plugin uses startsWith (no wildcards)
     "ebike://", // Production app scheme
-    "exp://", // Expo development — expo plugin uses startsWith (no wildcards)
+    "exp://", // Expo Go — expo plugin uses startsWith (no wildcards)
+    "exp+ebike://", // Expo dev client scheme
     "http://localhost:*",
     "http://127.0.0.1:*",
     "https://*.dev.vibecode.run",
@@ -151,10 +162,10 @@ export const auth = betterAuth({
   advanced: {
     trustedProxyHeaders: true, // Trust X-Forwarded-Host/Proto from reverse proxy
     disableCSRFCheck: true,
+    disableOriginCheck: true,
     defaultCookieAttributes: {
       sameSite: "none",
       secure: true,
-      partitioned: true,
     },
   },
 });

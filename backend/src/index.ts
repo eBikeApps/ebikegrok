@@ -132,7 +132,7 @@ const emailSignupDisabled = ["1", "true", "yes"].includes(
 );
 
 // Health check endpoint (version helps verify Render deployed latest code)
-const BUILD_VERSION = "2026-07-28-payment-500-fix";
+const BUILD_VERSION = "2026-08-18-auth-500-diag";
 app.get("/health", (c) => {
   const provider = getActivePaymentProvider();
   return c.json({
@@ -142,6 +142,36 @@ app.get("/health", (c) => {
     mockPayments: isMockPaymentsMode(),
     paymentProvider: provider,
   });
+});
+
+app.onError((err, c) => {
+  console.error("[Hono] unhandled", c.req.method, c.req.path, err);
+  return c.json(
+    {
+      error: "UNHANDLED",
+      message: err instanceof Error ? err.message : String(err),
+      path: c.req.path,
+    },
+    500
+  );
+});
+
+app.get("/api/auth-debug", async (c) => {
+  const { prisma } = await import("./prisma");
+  const probe = async (name: string, fn: () => Promise<unknown>) => {
+    try {
+      return { name, ok: true, result: await fn() };
+    } catch (e) {
+      return { name, ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  const tables = await Promise.all([
+    probe("user", () => prisma.user.count()),
+    probe("session", () => prisma.session.count()),
+    probe("account", () => prisma.account.count()),
+    probe("verification", () => prisma.verification.count()),
+  ]);
+  return c.json({ version: BUILD_VERSION, tables });
 });
 
 app.get("/api/auth/providers-check", (c) => {
@@ -194,18 +224,30 @@ app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   }
 
   console.log("[Auth Handler] Processing:", c.req.method, authPath);
-  const res = await auth.handler(c.req.raw);
-  if (authPath === "/api/auth/expo-authorization-proxy") {
-    const loc = res.headers.get("location") || "(no location header)";
-    console.log("[OAuth] Full redirect location:", loc);
-    try {
-      const redirectUri = new URL(loc).searchParams.get("redirect_uri");
-      console.log("[OAuth] redirect_uri param:", redirectUri);
-    } catch (e) {
-      console.log("[OAuth] Could not parse location as URL:", e);
+  try {
+    const res = await auth.handler(c.req.raw);
+    if (res.status >= 500) {
+      const body = await res.text();
+      console.error("[Auth Handler] upstream 500", authPath, body);
+      return c.json(
+        {
+          error: "AUTH_UPSTREAM_500",
+          path: authPath,
+          body: body || null,
+        },
+        500
+      );
     }
+    if (authPath === "/api/auth/expo-authorization-proxy") {
+      const loc = res.headers.get("location") || "(no location header)";
+      console.log("[OAuth] Full redirect location:", loc);
+    }
+    return res;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[Auth Handler] crash", authPath, err);
+    return c.json({ error: "AUTH_HANDLER_CRASH", path: authPath, message }, 500);
   }
-  return res;
 });
 
 // Protected route example - returns full user data including role and isApproved
