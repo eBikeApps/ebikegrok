@@ -33,6 +33,30 @@ function resolvePublicBackendUrl(c: { req: { header: (name: string) => string | 
   return "https://ebikel-backend.onrender.com";
 }
 
+/**
+ * PayMe rejects localhost / 127.0.0.1 return & callback URLs
+ * (error 21: "נא לבדוק תקינות קישורים"). Always use a public HTTPS base.
+ */
+function resolvePaymeCallbackBase(c: { req: { header: (name: string) => string | undefined } }): string {
+  const preferred = (
+    process.env.PAYME_CALLBACK_BASE_URL ||
+    process.env.OAUTH_BASE_URL ||
+    process.env.BACKEND_URL ||
+    ""
+  )
+    .trim()
+    .replace(/\/$/, "");
+  if (
+    preferred &&
+    !preferred.includes("127.0.0.1") &&
+    !preferred.includes("localhost") &&
+    preferred.startsWith("https://")
+  ) {
+    return preferred;
+  }
+  return "https://ebikel-backend.onrender.com";
+}
+
 // B27 FIX: validate commission rate at startup
 const RAW_COMMISSION = Number(process.env.COMMISSION_RATE ?? "0.10");
 if (Number.isNaN(RAW_COMMISSION) || RAW_COMMISSION < 0 || RAW_COMMISSION >= 1) {
@@ -102,9 +126,11 @@ paymentsRouter.post("/create", async (c) => {
     if (!isMock && isPaymeConfigured()) {
       try {
         const jobReference = formatJobReference(job.jobNumber);
-        const successUrl = `${backendUrl}/api/payments/success?jobId=${jobId}`;
-        const cancelUrl = `${backendUrl}/api/payments/cancel?jobId=${jobId}`;
-        const notifyUrl = `${backendUrl}/api/payments/payme/notify`;
+        // Must be public HTTPS — PayMe rejects 127.0.0.1 / localhost (error 21)
+        const paymeBase = resolvePaymeCallbackBase(c);
+        const successUrl = `${paymeBase}/api/payments/success?jobId=${jobId}`;
+        const cancelUrl = `${paymeBase}/api/payments/cancel?jobId=${jobId}`;
+        const notifyUrl = `${paymeBase}/api/payments/payme/notify`;
 
         const sale = await createPaymeSale({
           amount,
@@ -118,11 +144,23 @@ paymentsRouter.post("/create", async (c) => {
         paymentUrl = sale.paymentUrl;
         transactionRef = sale.saleId;
         provider = "payme";
-      } catch (paymeErr) {
-        // Keep checkout working for TestFlight while PayMe is unfinished
-        console.error("[Payments] PayMe failed — falling back to mock:", paymeErr);
-        isMock = true;
-        provider = "mock";
+      } catch (paymeErr: any) {
+        console.error("[Payments] PayMe failed:", paymeErr);
+        // Do NOT silently show demo page when PayMe is intentionally enabled —
+        // surface the real error so we can fix config / links.
+        const msg =
+          typeof paymeErr?.message === "string" && paymeErr.message
+            ? paymeErr.message
+            : "שגיאה ביצירת תשלום PayMe";
+        return c.json(
+          {
+            error: msg,
+            provider: "payme",
+            hint:
+              "ודא PAYME_PARTNER_KEY, PAYME_SELLER_PAYME_ID, וקישורי callback ציבוריים (https)",
+          },
+          502
+        );
       }
     }
 
@@ -272,19 +310,14 @@ paymentsRouter.post("/mock/complete", async (c) => {
       });
       if (!extra) return c.text("תשלום לא נמצא או שכבר בוצע", 404);
 
-      const claim = await prisma.extraRepairRequest.updateMany({
-        where: { id: extra.id, status: "pending" },
-        data: { status: "paid", paidAt: new Date(), growTransactionCode: `mock-paid:${token}` },
+      await markExtraRepairPaid({
+        extraId: extra.id,
+        transactionId: `mock-paid:extra:${token}`,
+        paymentSum: extra.amount,
       });
-      if (claim.count > 0 && extra.job?.technician?.expoPushToken) {
-        await sendPushNotification(
-          extra.job.technician.expoPushToken,
-          "💳 תשלום התקבל (דמו)",
-          `הלקוח שילם ₪${extra.amount} — תוכל להמשיך בתיקון`,
-          { screen: "active-job", jobId: extra.jobId }
-        );
-      }
-      return c.redirect(`${backendUrl}/api/payments/success?jobId=${extra.jobId}`);
+      return c.redirect(
+        `${backendUrl}/api/payments/success?jobId=${extra.jobId}&extraId=${extra.id}`
+      );
     }
 
     const payment = await prisma.payment.findFirst({
@@ -364,6 +397,47 @@ paymentsRouter.post("/payme/notify", async (c) => {
     if (!saleId) return c.json({ ok: true });
 
     const saleIdStr = String(saleId);
+    const status = String(body.sale_status || body.status || "").toLowerCase();
+    const isPaid =
+      status === "paid" ||
+      status === "completed" ||
+      status === "success" ||
+      body.sale_paid === true ||
+      body.sale_paid === "true" ||
+      body.sale_paid === 1 ||
+      body.paid === true ||
+      body.success === true;
+
+    if (!isPaid) return c.json({ ok: true });
+
+    const rawPrice =
+      typeof body.price === "number"
+        ? body.price
+        : typeof body.amount === "number"
+          ? body.amount
+          : null;
+
+    // Extra repair payment (reference extra:… or payme:extra:…)
+    const extra = await prisma.extraRepairRequest.findFirst({
+      where: {
+        status: "pending",
+        OR: [
+          { growTransactionCode: saleIdStr },
+          { growTransactionCode: { contains: saleIdStr } },
+          { growTransactionCode: `payme:extra:${saleIdStr}` },
+        ],
+      },
+    });
+    if (extra) {
+      const paySum = rawPrice != null ? rawPrice / 100 : extra.amount;
+      await markExtraRepairPaid({
+        extraId: extra.id,
+        transactionId: `payme:extra:${saleIdStr}`,
+        paymentSum: paySum,
+      });
+      return c.json({ ok: true });
+    }
+
     const payment = await prisma.payment.findFirst({
       where: {
         OR: [
@@ -378,27 +452,12 @@ paymentsRouter.post("/payme/notify", async (c) => {
       return c.json({ ok: true });
     }
 
-    const status = String(body.sale_status || body.status || "").toLowerCase();
-    const isPaid =
-      status === "paid" ||
-      status === "completed" ||
-      status === "success" ||
-      body.sale_paid === true ||
-      body.sale_paid === "true" ||
-      body.sale_paid === 1 ||
-      body.paid === true ||
-      body.success === true;
-
-    if (isPaid) {
-      const rawPrice = typeof body.price === "number" ? body.price : typeof body.amount === "number" ? body.amount : null;
-      // PayMe prices are usually agorot
-      const paySum = rawPrice != null ? rawPrice / 100 : payment.amount;
-      await markMainJobPaid({
-        jobId: payment.jobId,
-        transactionId: `payme:${saleIdStr}`,
-        paymentSum: paySum,
-      });
-    }
+    const paySum = rawPrice != null ? rawPrice / 100 : payment.amount;
+    await markMainJobPaid({
+      jobId: payment.jobId,
+      transactionId: `payme:${saleIdStr}`,
+      paymentSum: paySum,
+    });
 
     return c.json({ ok: true });
   } catch (err) {
@@ -421,10 +480,277 @@ async function syncJobPaymentOnSuccess(jobId: string) {
   }
 }
 
+async function markExtraRepairPaid(params: {
+  extraId: string;
+  transactionId: string;
+  paymentSum?: number;
+}): Promise<boolean> {
+  const extra = await prisma.extraRepairRequest.findUnique({
+    where: { id: params.extraId },
+    include: { job: { include: { technician: true, customer: true } } },
+  });
+  if (!extra || extra.status === "paid") return false;
+
+  const claim = await prisma.extraRepairRequest.updateMany({
+    where: { id: params.extraId, status: "pending" },
+    data: {
+      status: "paid",
+      paidAt: new Date(),
+      growTransactionCode: params.transactionId,
+    },
+  });
+  if (claim.count === 0) return false;
+
+  const amount = params.paymentSum ?? extra.amount;
+  const techId = extra.technicianId || extra.job.technicianId;
+  if (techId && amount > 0) {
+    try {
+      await prisma.$transaction([
+        prisma.transaction.create({
+          data: {
+            technicianId: techId,
+            jobId: extra.jobId,
+            type: "earning",
+            amount,
+            status: "completed",
+          },
+        }),
+        prisma.user.update({
+          where: { id: techId },
+          data: { totalEarnings: { increment: amount } },
+        }),
+      ]);
+    } catch (earnErr) {
+      console.error("[Payments] extra earning error:", earnErr);
+    }
+  }
+
+  if (extra.job.technician?.expoPushToken) {
+    await sendPushNotification(
+      extra.job.technician.expoPushToken,
+      "💳 תשלום נוסף התקבל!",
+      `הלקוח שילם ₪${amount} על תיקון נוסף`,
+      { screen: "active-job", jobId: extra.jobId }
+    );
+  }
+  return true;
+}
+
+// POST /api/payments/extra-repair — technician requests additional paid work
+paymentsRouter.post("/extra-repair", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.body(null, 401);
+  if (user.role !== "technician") {
+    return c.json({ error: "רק טכנאים יכולים לבקש תשלום נוסף" }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const jobId = typeof body.jobId === "string" ? body.jobId : "";
+  const description = typeof body.description === "string" ? body.description.trim() : "";
+  const amount = Math.round(Number(body.amount));
+
+  if (!jobId) return c.json({ error: "חסר מזהה הזמנה" }, 400);
+  if (!description || description.length < 2) {
+    return c.json({ error: "נא לתאר את התיקון הנוסף" }, 400);
+  }
+  if (!Number.isFinite(amount) || amount < 10 || amount > 50000) {
+    return c.json({ error: "סכום לא תקין (10–50000 ₪)" }, 400);
+  }
+
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: { customer: true },
+  });
+  if (!job) return c.json({ error: "הזמנה לא נמצאה" }, 404);
+
+  const isAssigned =
+    job.technicianId === user.id || job.secondaryTechnicianId === user.id;
+  if (!isAssigned) return c.json({ error: "לא מורשה" }, 403);
+  if (job.paymentStatus !== "paid") {
+    return c.json({ error: "ניתן לבקש תשלום נוסף רק אחרי תשלום ראשוני" }, 400);
+  }
+  if (!["arrived", "in_progress"].includes(job.status)) {
+    return c.json({ error: "ניתן לבקש תשלום נוסף רק כשהטכנאי אצל הלקוח / בתיקון" }, 400);
+  }
+
+  // One open pending request at a time per job
+  const existingPending = await prisma.extraRepairRequest.findFirst({
+    where: { jobId, status: "pending" },
+  });
+  if (existingPending) {
+    return c.json(
+      {
+        error: "יש כבר בקשת תשלום נוסף ממתינה לאישור הלקוח",
+        extra: existingPending,
+      },
+      409
+    );
+  }
+
+  try {
+    const backendUrl = resolvePublicBackendUrl(c);
+    let paymentUrl = "";
+    let transactionRef = "";
+    let provider: "mock" | "payme" = "mock";
+    let isMock = isMockPaymentsMode();
+
+    // Create row first to get id for PayMe reference
+    const extra = await prisma.extraRepairRequest.create({
+      data: {
+        jobId,
+        technicianId: user.id,
+        description,
+        amount,
+        status: "pending",
+      },
+    });
+
+    if (!isMock && isPaymeConfigured()) {
+      try {
+        const paymeBase = resolvePaymeCallbackBase(c);
+        const successUrl = `${paymeBase}/api/payments/success?jobId=${jobId}&extraId=${extra.id}`;
+        const cancelUrl = `${paymeBase}/api/payments/cancel?jobId=${jobId}&extraId=${extra.id}`;
+        const notifyUrl = `${paymeBase}/api/payments/payme/notify`;
+
+        const sale = await createPaymeSale({
+          amount,
+          description: `תיקון נוסף: ${description.slice(0, 80)}`,
+          reference: `extra:${extra.id}`,
+          successUrl,
+          cancelUrl,
+          notifyUrl,
+        });
+        paymentUrl = sale.paymentUrl;
+        transactionRef = `payme:extra:${sale.saleId}`;
+        provider = "payme";
+      } catch (paymeErr: any) {
+        console.error("[Payments] PayMe extra failed:", paymeErr);
+        await prisma.extraRepairRequest.delete({ where: { id: extra.id } }).catch(() => {});
+        const msg =
+          typeof paymeErr?.message === "string" && paymeErr.message
+            ? paymeErr.message
+            : "שגיאה ביצירת תשלום PayMe";
+        return c.json({ error: msg, provider: "payme" }, 502);
+      }
+    }
+
+    if (provider === "mock") {
+      const token = createMockToken();
+      paymentUrl = mockCheckoutUrl(backendUrl, token, "extra");
+      transactionRef = encodeMockRef(token, "extra");
+      isMock = true;
+    }
+
+    if (!paymentUrl) {
+      await prisma.extraRepairRequest.delete({ where: { id: extra.id } }).catch(() => {});
+      return c.json({ error: "לא ניתן ליצור דף תשלום" }, 500);
+    }
+
+    const updated = await prisma.extraRepairRequest.update({
+      where: { id: extra.id },
+      data: { paymentUrl, growTransactionCode: transactionRef },
+    });
+
+    if (job.customer?.expoPushToken) {
+      try {
+        await sendPushNotification(
+          job.customer.expoPushToken,
+          "🔧 בקשת תיקון נוסף",
+          `הטכנאי מבקש ₪${amount} — ${description.slice(0, 60)}`,
+          { screen: "extra-payment", jobId, extraId: extra.id }
+        );
+      } catch (pushErr) {
+        console.error("[Push] extra-repair customer notify:", pushErr);
+      }
+    }
+
+    console.log(`[Payments] extra-repair created ${extra.id} job=${jobId} ₪${amount} via ${provider}`);
+    return c.json({
+      extra: updated,
+      paymentUrl,
+      amount,
+      mockMode: isMock,
+      provider,
+      description: updated.description,
+    });
+  } catch (err: any) {
+    console.error("[Payments] extra-repair create error:", err);
+    return c.json({ error: err?.message || "שגיאה פנימית" }, 500);
+  }
+});
+
+// GET /api/payments/extra-repair/pending/:jobId — customer/tech see open extra charges
+paymentsRouter.get("/extra-repair/pending/:jobId", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.body(null, 401);
+
+  const jobId = c.req.param("jobId");
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { customerId: true, technicianId: true, secondaryTechnicianId: true },
+  });
+  if (!job) return c.json({ error: "Not found" }, 404);
+
+  const allowed =
+    job.customerId === user.id ||
+    job.technicianId === user.id ||
+    job.secondaryTechnicianId === user.id;
+  if (!allowed) return c.json({ error: "Forbidden" }, 403);
+
+  const extras = await prisma.extraRepairRequest.findMany({
+    where: { jobId, status: "pending" },
+    orderBy: { createdAt: "desc" },
+  });
+  return c.json({ extras });
+});
+
+// POST /api/payments/extra-repair/:id/reject — customer declines extra work
+paymentsRouter.post("/extra-repair/:id/reject", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.body(null, 401);
+
+  const id = c.req.param("id");
+  const extra = await prisma.extraRepairRequest.findUnique({
+    where: { id },
+    include: { job: { include: { technician: true } } },
+  });
+  if (!extra) return c.json({ error: "לא נמצא" }, 404);
+  if (extra.job.customerId !== user.id) return c.json({ error: "Forbidden" }, 403);
+  if (extra.status !== "pending") {
+    return c.json({ error: "הבקשה כבר טופלה" }, 400);
+  }
+
+  await prisma.extraRepairRequest.update({
+    where: { id },
+    data: { status: "rejected" },
+  });
+
+  if (extra.job.technician?.expoPushToken) {
+    await sendPushNotification(
+      extra.job.technician.expoPushToken,
+      "הלקוח דחה תיקון נוסף",
+      extra.description.slice(0, 80),
+      { screen: "active-job", jobId: extra.jobId }
+    ).catch(() => {});
+  }
+
+  return c.json({ success: true });
+});
+
 // GET /api/payments/success — browser redirect after payment provider success
 paymentsRouter.get("/success", async (c) => {
   const jobId = c.req.query("jobId") ?? "";
-  if (jobId) {
+  const extraId = c.req.query("extraId") ?? "";
+  if (extraId) {
+    try {
+      await markExtraRepairPaid({
+        extraId,
+        transactionId: `success-sync:extra:${extraId}`,
+      });
+    } catch (err) {
+      console.error("[Payments] extra success-sync error:", err);
+    }
+  } else if (jobId) {
     try {
       await syncJobPaymentOnSuccess(jobId);
     } catch (err) {

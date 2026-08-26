@@ -130,7 +130,7 @@ export default function InviteTechnicianScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: '#F8FAFC', fontWeight: '700', fontSize: 16 }}>{tech.name}</Text>
                 <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 2 }}>
-                  ⭐ {tech.rating.toFixed(1)} · ₪{tech.base_price}
+                  ⭐ {(tech.rating ?? 0).toFixed(1)} · ₪{tech.base_price ?? 0}
                 </Text>
               </View>
               {invitingId === tech.id ? (

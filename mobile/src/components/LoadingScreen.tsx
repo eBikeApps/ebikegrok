@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
-import { View, Dimensions } from 'react-native';
+import { View, Text, Dimensions, StyleSheet, ImageBackground } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -10,276 +12,231 @@ import Animated, {
   Easing,
   interpolate,
 } from 'react-native-reanimated';
+import { EBikeLogo } from '@/components/auth/AuthUi';
 
-const { width } = Dimensions.get('window');
-const LOGO_SIZE = 110;
-const RING_SIZE = 148;
+const { width, height } = Dimensions.get('window');
+const BAR_WIDTH = Math.min(width * 0.42, 180);
 
+/**
+ * App bootstrap loading — matches sign-in: cinematic bg + brand logo + soft motion.
+ * Shown while RTL/session resolve after native splash hides.
+ */
 export function LoadingScreen() {
   const fadeIn = useSharedValue(0);
-  const logoScale = useSharedValue(1);
-  const ring1Scale = useSharedValue(1);
-  const ring1Opacity = useSharedValue(0.55);
-  const ring2Scale = useSharedValue(1);
-  const ring2Opacity = useSharedValue(0.4);
-  const dot1 = useSharedValue(0);
-  const dot2 = useSharedValue(0);
-  const dot3 = useSharedValue(0);
+  const bgScale = useSharedValue(1);
+  const barProgress = useSharedValue(0);
+  const taglineOpacity = useSharedValue(0);
+  const brandOpacity = useSharedValue(0);
+  const glowPulse = useSharedValue(0.35);
 
   useEffect(() => {
-    // Fade in everything
-    fadeIn.value = withTiming(1, { duration: 750, easing: Easing.out(Easing.quad) });
+    fadeIn.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) });
 
-    // Gentle logo breathe
-    logoScale.value = withDelay(
+    // Slow cinematic zoom on background (Ken Burns)
+    bgScale.value = withRepeat(
+      withSequence(
+        withTiming(1.08, { duration: 9000, easing: Easing.inOut(Easing.sin) }),
+        withTiming(1.0, { duration: 9000, easing: Easing.inOut(Easing.sin) })
+      ),
+      -1,
+      true
+    );
+
+    brandOpacity.value = withDelay(280, withTiming(1, { duration: 700 }));
+    taglineOpacity.value = withDelay(520, withTiming(1, { duration: 700 }));
+
+    // Indeterminate progress bar
+    barProgress.value = withDelay(
       400,
       withRepeat(
         withSequence(
-          withTiming(1.08, { duration: 1500, easing: Easing.inOut(Easing.sin) }),
-          withTiming(1.0, { duration: 1500, easing: Easing.inOut(Easing.sin) })
+          withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.cubic) }),
+          withTiming(0, { duration: 0 })
+        ),
+        -1
+      )
+    );
+
+    glowPulse.value = withDelay(
+      600,
+      withRepeat(
+        withSequence(
+          withTiming(0.7, { duration: 1600, easing: Easing.inOut(Easing.sin) }),
+          withTiming(0.3, { duration: 1600, easing: Easing.inOut(Easing.sin) })
         ),
         -1,
         true
       )
     );
-
-    // Ripple ring 1
-    ring1Scale.value = withRepeat(
-      withSequence(
-        withTiming(1.75, { duration: 1900, easing: Easing.out(Easing.quad) }),
-        withTiming(1.0, { duration: 0 })
-      ),
-      -1
-    );
-    ring1Opacity.value = withRepeat(
-      withSequence(
-        withTiming(0, { duration: 1900, easing: Easing.out(Easing.cubic) }),
-        withTiming(0.55, { duration: 0 })
-      ),
-      -1
-    );
-
-    // Ripple ring 2 — offset
-    ring2Scale.value = withDelay(
-      950,
-      withRepeat(
-        withSequence(
-          withTiming(1.75, { duration: 1900, easing: Easing.out(Easing.quad) }),
-          withTiming(1.0, { duration: 0 })
-        ),
-        -1
-      )
-    );
-    ring2Opacity.value = withDelay(
-      950,
-      withRepeat(
-        withSequence(
-          withTiming(0, { duration: 1900, easing: Easing.out(Easing.cubic) }),
-          withTiming(0.4, { duration: 0 })
-        ),
-        -1
-      )
-    );
-
-    // Bouncing dots — wave pattern
-    const dotAnim = (delay: number) =>
-      withDelay(
-        delay,
-        withRepeat(
-          withSequence(
-            withTiming(1, { duration: 380, easing: Easing.out(Easing.back(1.8)) }),
-            withTiming(0, { duration: 380, easing: Easing.in(Easing.quad) }),
-            withDelay(380, withTiming(0, { duration: 0 }))
-          ),
-          -1
-        )
-      );
-
-    dot1.value = dotAnim(0);
-    dot2.value = dotAnim(170);
-    dot3.value = dotAnim(340);
   }, []);
 
-  const fadeStyle = useAnimatedStyle(() => ({
+  const rootFade = useAnimatedStyle(() => ({
     opacity: fadeIn.value,
   }));
 
-  const logoContainerStyle = useAnimatedStyle(() => ({
-    opacity: fadeIn.value,
-    transform: [{ scale: logoScale.value }],
+  const bgStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: bgScale.value }],
   }));
 
-  const textStyle = useAnimatedStyle(() => ({
-    opacity: fadeIn.value,
-    transform: [{ translateY: interpolate(fadeIn.value, [0, 1], [12, 0]) }],
+  const brandStyle = useAnimatedStyle(() => ({
+    opacity: brandOpacity.value,
+    transform: [{ translateY: interpolate(brandOpacity.value, [0, 1], [10, 0]) }],
   }));
 
-  const ring1Style = useAnimatedStyle(() => ({
-    opacity: ring1Opacity.value,
-    transform: [{ scale: ring1Scale.value }],
+  const taglineStyle = useAnimatedStyle(() => ({
+    opacity: taglineOpacity.value,
+    transform: [{ translateY: interpolate(taglineOpacity.value, [0, 1], [8, 0]) }],
   }));
 
-  const ring2Style = useAnimatedStyle(() => ({
-    opacity: ring2Opacity.value,
-    transform: [{ scale: ring2Scale.value }],
+  const barTrackStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(fadeIn.value, [0, 1], [0, 1]),
   }));
 
-  const dot1Style = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(dot1.value, [0, 1], [0, -10]) }],
-    opacity: interpolate(dot1.value, [0, 0.4, 1], [0.25, 1, 0.25]),
+  const barFillStyle = useAnimatedStyle(() => ({
+    width: interpolate(barProgress.value, [0, 1], [BAR_WIDTH * 0.12, BAR_WIDTH]),
+    opacity: interpolate(barProgress.value, [0, 0.15, 0.85, 1], [0.4, 1, 1, 0.35]),
   }));
 
-  const dot2Style = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(dot2.value, [0, 1], [0, -10]) }],
-    opacity: interpolate(dot2.value, [0, 0.4, 1], [0.25, 1, 0.25]),
-  }));
-
-  const dot3Style = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(dot3.value, [0, 1], [0, -10]) }],
-    opacity: interpolate(dot3.value, [0, 0.4, 1], [0.25, 1, 0.25]),
+  const bottomGlowStyle = useAnimatedStyle(() => ({
+    opacity: glowPulse.value,
   }));
 
   return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: '#052e16',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {/* Soft radial glow behind logo — shifted up to align with rings */}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            width: width * 0.85,
-            height: width * 0.85,
-            borderRadius: (width * 0.85) / 2,
-            backgroundColor: '#064e3b',
-            transform: [{ translateY: -88 }],
-          },
-          fadeStyle,
-        ]}
-      />
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            width: width * 0.45,
-            height: width * 0.45,
-            borderRadius: (width * 0.45) / 2,
-            backgroundColor: '#065f46',
-            opacity: 0.7,
-            transform: [{ translateY: -88 }],
-          },
-          fadeStyle,
-        ]}
-      />
+    <View style={styles.root}>
+      <StatusBar style="light" />
 
-      {/* Logo + ripple rings */}
-      <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-        {/* Ring 1 */}
-        <Animated.View
-          style={[
-            {
-              position: 'absolute',
-              width: RING_SIZE,
-              height: RING_SIZE,
-              borderRadius: RING_SIZE / 2,
-              borderWidth: 1.5,
-              borderColor: '#34d399',
-            },
-            ring1Style,
-          ]}
-        />
-        {/* Ring 2 */}
-        <Animated.View
-          style={[
-            {
-              position: 'absolute',
-              width: RING_SIZE,
-              height: RING_SIZE,
-              borderRadius: RING_SIZE / 2,
-              borderWidth: 1,
-              borderColor: '#6ee7b7',
-            },
-            ring2Style,
-          ]}
-        />
-
-        {/* Logo circle */}
-        <Animated.View
-          style={[
-            {
-              width: LOGO_SIZE,
-              height: LOGO_SIZE,
-              borderRadius: LOGO_SIZE / 2,
-              backgroundColor: 'rgba(52, 211, 153, 0.1)',
-              borderWidth: 1.5,
-              borderColor: 'rgba(52, 211, 153, 0.35)',
-            },
-            logoContainerStyle,
-          ]}
-        />
-      </View>
-
-      {/* Bouncing dots */}
-      <Animated.View
-        style={[
-          {
-            flexDirection: 'row',
-            gap: 9,
-            marginTop: 40,
-            alignItems: 'flex-end',
-            height: 20,
-          },
-          fadeStyle,
-        ]}
-      >
-        <Animated.View
-          style={[
-            { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#34d399' },
-            dot1Style,
-          ]}
-        />
-        <Animated.View
-          style={[
-            { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#34d399' },
-            dot2Style,
-          ]}
-        />
-        <Animated.View
-          style={[
-            { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#34d399' },
-            dot3Style,
-          ]}
+      {/* Background photo — same as sign-in */}
+      <Animated.View style={[StyleSheet.absoluteFill, bgStyle]}>
+        <ImageBackground
+          source={require('@/assets/images/sign-in-bg.jpg')}
+          style={styles.bg}
+          resizeMode="cover"
         />
       </Animated.View>
 
-      {/* App name + tagline */}
-      <Animated.View style={[{ alignItems: 'center', marginTop: 28 }, textStyle]}>
-        <Animated.Text
-          style={{
-            color: '#ffffff',
-            fontSize: 34,
-            fontWeight: '700',
-            letterSpacing: 2,
-          }}
-        >
-          eBike
-        </Animated.Text>
-        <Animated.Text
-          style={{
-            color: 'rgba(110, 231, 183, 0.75)',
-            fontSize: 13,
-            marginTop: 6,
-            letterSpacing: 0.4,
-          }}
-        >
-          שירות תיקון אופניים חשמליים
-        </Animated.Text>
+      {/* Depth overlays — match sign-in gradient language */}
+      <LinearGradient
+        colors={['rgba(0,0,0,0.42)', 'rgba(0,0,0,0.28)', 'rgba(0,0,0,0.68)']}
+        locations={[0, 0.45, 1]}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
+      <LinearGradient
+        colors={['rgba(5,46,22,0.35)', 'transparent', 'rgba(6,20,40,0.55)']}
+        locations={[0, 0.4, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Soft emerald bloom behind logo */}
+      <Animated.View style={[styles.logoBloom, bottomGlowStyle]} pointerEvents="none" />
+
+      <Animated.View style={[styles.content, rootFade]}>
+        <View style={styles.logoWrap}>
+          <EBikeLogo />
+        </View>
+
+        <Animated.View style={[{ alignItems: 'center', marginTop: 20 }, brandStyle]}>
+          <Text style={styles.brand}>eBike</Text>
+        </Animated.View>
+
+        <Animated.View style={[{ alignItems: 'center', marginTop: 10 }, taglineStyle]}>
+          <Text style={styles.tagline}>שירות תיקון אופניים חשמליים</Text>
+          <View style={styles.taglineRule} />
+        </Animated.View>
+
+        {/* Progress */}
+        <Animated.View style={[styles.barTrack, barTrackStyle]}>
+          <Animated.View style={[styles.barFill, barFillStyle]}>
+            <LinearGradient
+              colors={['rgba(16,185,129,0.2)', '#34d399', '#6ee7b7', 'rgba(16,185,129,0.2)']}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+        </Animated.View>
+
+        <Animated.Text style={[styles.loadingLabel, taglineStyle]}>טוען…</Animated.Text>
       </Animated.View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#052e16',
+  },
+  bg: {
+    width,
+    height,
+  },
+  logoBloom: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: height * 0.22,
+    width: width * 0.75,
+    height: width * 0.75,
+    borderRadius: width * 0.4,
+    backgroundColor: 'rgba(16,185,129,0.18)',
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 60,
+  },
+  content: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingBottom: 48,
+  },
+  logoWrap: {
+    // Slightly tighter than full sign-in logo for loading composition
+    transform: [{ scale: 0.88 }],
+  },
+  brand: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 6,
+    textTransform: 'uppercase',
+  },
+  tagline: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+  taglineRule: {
+    marginTop: 14,
+    width: 36,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(52,211,153,0.55)',
+  },
+  barTrack: {
+    position: 'absolute',
+    bottom: 72,
+    width: BAR_WIDTH,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  loadingLabel: {
+    position: 'absolute',
+    bottom: 48,
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 1.2,
+  },
+});

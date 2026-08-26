@@ -15,7 +15,8 @@ export default function LegalScreen() {
   const colorScheme = useAppThemeStore((s) => s.colorScheme);
   const colors = getThemeColors(colorScheme);
 
-  const docType: LegalDocType = type === 'privacy' ? 'privacy' : 'terms';
+  const docType: LegalDocType =
+    type === 'privacy' ? 'privacy' : type === 'cancellation' ? 'cancellation' : 'terms';
   const { title, body } = getLegalContent(docType, language);
   const BackIcon = I18nManager.isRTL ? ChevronRight : ChevronLeft;
 
@@ -29,7 +30,7 @@ export default function LegalScreen() {
         <View style={{ width: 40 }} />
       </View>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-        <Text style={{ fontSize: 14, lineHeight: 24, color: colors.textSecondary, textAlign: 'right' }}>{body}</Text>
+        <Text style={{ fontSize: 14, lineHeight: 24, color: colors.textSecondary, textAlign: language === 'he' ? 'right' : 'left' }}>{body}</Text>
       </ScrollView>
     </SafeAreaView>
   );

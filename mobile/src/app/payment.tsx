@@ -6,17 +6,21 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  StyleSheet,
 } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import Animated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { X, ShieldCheck, CheckCircle2, XCircle, RefreshCw } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { authClient } from '@/lib/auth/auth-client';
 import { RequireAuth } from '@/components/RequireAuth';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useLanguageStore } from '@/lib/store';
+import { firstSearchParam } from '@/lib/geo';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL!;
 
@@ -26,17 +30,68 @@ function PaymentScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const t = useLanguageStore((s) => s.t);
-  const { jobId, paymentUrl, amount, description } = useLocalSearchParams<{
-    jobId: string;
-    paymentUrl: string;
-    amount: string;
+  const rawParams = useLocalSearchParams<{
+    jobId?: string;
+    paymentUrl?: string;
+    amount?: string;
     description?: string;
+    extraId?: string;
   }>();
+  const jobId = firstSearchParam(rawParams.jobId);
+  const extraId = firstSearchParam(rawParams.extraId);
+  const description = firstSearchParam(rawParams.description) || undefined;
+  const amount = firstSearchParam(rawParams.amount);
+  const paymentUrl = (() => {
+    const raw = firstSearchParam(rawParams.paymentUrl);
+    if (!raw) return '';
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  })();
 
   const [state, setState] = useState<PaymentState>('loading');
+  const [failReason, setFailReason] = useState<string>('');
   const [webviewKey, setWebviewKey] = useState(0);
   const webviewRef = useRef<WebView>(null);
   const isMounted = useRef(true);
+
+  const setFailed = (reason: string) => {
+    setFailReason(reason);
+    setState('failed');
+  };
+
+  const reasonFromUrl = (url: string): string => {
+    try {
+      const parsed = new URL(url);
+      const keys = [
+        'status_error_details',
+        'status_error_code',
+        'error_description',
+        'error',
+        'message',
+        'reason',
+        'status_code',
+      ];
+      for (const key of keys) {
+        const val = parsed.searchParams.get(key);
+        if (val?.trim()) {
+          try {
+            return decodeURIComponent(val.replace(/\+/g, ' ')).trim();
+          } catch {
+            return val.trim();
+          }
+        }
+      }
+    } catch {
+      // relative / partial URLs — fall through
+    }
+    if (/cancel/i.test(url) && !/fail/i.test(url)) {
+      return 'התשלום בוטל';
+    }
+    return 'לא הצלחנו לעבד את התשלום. אנא נסה שנית';
+  };
 
   useEffect(() => {
     isMounted.current = true;
@@ -71,18 +126,40 @@ function PaymentScreen() {
   const amountNum = Number(amount ?? 0);
   const isMockCheckout = (paymentUrl ?? '').includes('/api/payments/mock/');
 
-  const handleNavigationChange = (navState: WebViewNavigation) => {
-    const url = navState.url ?? '';
-    if (url.includes('/api/payments/success') || url.includes('payment-success')) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setState('success');
-    } else if (url.includes('/api/payments/cancel') || url.includes('/api/payments/failure') || url.includes('payment-failure') || url.includes('payment-cancel')) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setState('failed');
+  const classifyCheckoutUrl = (url: string): 'success' | 'fail' | 'other' => {
+    if (url.includes('/api/payments/success') || url.includes('payment-success')) return 'success';
+    if (
+      url.includes('/api/payments/cancel') ||
+      url.includes('/api/payments/failure') ||
+      url.includes('payment-failure') ||
+      url.includes('payment-cancel')
+    ) {
+      return 'fail';
     }
+    return 'other';
+  };
+
+  const handleCheckoutOutcome = (url: string) => {
+    const kind = classifyCheckoutUrl(url);
+    if (kind === 'success') {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setState('success');
+      return true;
+    }
+    if (kind === 'fail') {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      setFailed(reasonFromUrl(url));
+      return true;
+    }
+    return false;
+  };
+
+  const handleNavigationChange = (navState: WebViewNavigation) => {
+    handleCheckoutOutcome(navState.url ?? '');
   };
 
   const handleRetry = () => {
+    setFailReason('');
     setState('loading');
     setWebviewKey((k) => k + 1);
   };
@@ -135,34 +212,48 @@ function PaymentScreen() {
             </View>
 
             <Text style={{
-              color: '#F8FAFC', fontSize: 28, fontWeight: '800',
+              color: '#F8FAFC', fontSize: 26, fontWeight: '800',
               textAlign: 'center', marginBottom: 10,
             }}>
-              שלם והטכנאי בדרך אליך
+              תשלום בוצע בהצלחה
+            </Text>
+            <Text style={{
+              color: '#34D399', fontSize: 18, fontWeight: '700',
+              textAlign: 'center', marginBottom: 10,
+            }}>
+              {extraId ? 'תשלום נוסף על תיקון נוסף התקבל' : 'טכנאי בדרך אליך'}
             </Text>
             <Text style={{
               color: '#64748B', fontSize: 15, textAlign: 'center', lineHeight: 22,
             }}>
-              ₪{amountNum.toLocaleString()} שולמו בהצלחה
+              ₪{amountNum.toLocaleString()} שולמו
             </Text>
 
             <Pressable
               onPress={handleSuccessContinue}
-              style={{ marginTop: 40 }}
+              style={({ pressed }) => [doneGlass.btn, pressed && { opacity: 0.88 }]}
             >
+              {Platform.OS === 'ios' ? (
+                <BlurView intensity={36} tint="dark" style={StyleSheet.absoluteFill} />
+              ) : (
+                <View style={[StyleSheet.absoluteFill, doneGlass.androidBg]} />
+              )}
               <LinearGradient
-                colors={['#10B981', '#059669']}
+                colors={[
+                  'rgba(52,211,153,0.55)',
+                  'rgba(16,185,129,0.72)',
+                  'rgba(5,150,105,0.85)',
+                ]}
                 start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={{
-                  borderRadius: 18, paddingVertical: 17,
-                  paddingHorizontal: 40, alignItems: 'center',
-                }}
-              >
-                <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>
-                  {t('done')}
-                </Text>
-              </LinearGradient>
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <LinearGradient
+                colors={['rgba(255,255,255,0.4)', 'transparent']}
+                style={doneGlass.sheen}
+              />
+              <Text style={doneGlass.label}>{t('done')}</Text>
+              <View style={doneGlass.border} pointerEvents="none" />
             </Pressable>
           </Animated.View>
         </LinearGradient>
@@ -191,12 +282,18 @@ function PaymentScreen() {
             color: '#F8FAFC', fontSize: 26, fontWeight: '800',
             textAlign: 'center', marginBottom: 10,
           }}>
-            התשלום נכשל
+            התשלום לא הצליח
           </Text>
           <Text style={{
-            color: '#64748B', fontSize: 15, textAlign: 'center', lineHeight: 22,
+            color: '#FCA5A5', fontSize: 15, textAlign: 'center', lineHeight: 22,
+            marginBottom: 8, paddingHorizontal: 8,
           }}>
-            לא הצלחנו לעבד את התשלום{'\n'}אנא נסה שנית
+            {failReason || 'לא הצלחנו לעבד את התשלום. אנא נסה שנית'}
+          </Text>
+          <Text style={{
+            color: '#64748B', fontSize: 13, textAlign: 'center', lineHeight: 20,
+          }}>
+            אפשר לנסות שוב או לבטל
           </Text>
 
           <View style={{ flexDirection: 'row', gap: 12, marginTop: 40 }}>
@@ -275,7 +372,7 @@ function PaymentScreen() {
 
       {/* WebView */}
       <View style={{ flex: 1 }}>
-        {!paymentUrl ? (
+        {!/^https?:\/\//i.test(paymentUrl) ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
             <ActivityIndicator size="large" color="#3B82F6" />
             <Text style={{ color: '#94A3B8', fontSize: 14 }}>מכין דף תשלום…</Text>
@@ -285,10 +382,16 @@ function PaymentScreen() {
             key={webviewKey}
             ref={webviewRef}
             source={{ uri: paymentUrl }}
+            originWhitelist={['*']}
+            onShouldStartLoadWithRequest={(req) => !handleCheckoutOutcome(req.url ?? '')}
             onNavigationStateChange={handleNavigationChange}
-            onLoadStart={() => setState('loading')}
-            onLoadEnd={() => setState('ready')}
-            onError={() => setState('failed')}
+            onLoadEnd={() => {
+              setState((s) => (s === 'success' || s === 'failed' ? s : 'ready'));
+            }}
+            onError={() => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              setFailed('שגיאה בטעינת דף התשלום. בדוק חיבור לאינטרנט ונסה שנית');
+            }}
             javaScriptEnabled
             domStorageEnabled
             startInLoadingState
@@ -336,10 +439,53 @@ function PaymentScreen() {
   );
 }
 
+const doneGlass = StyleSheet.create({
+  btn: {
+    marginTop: 40,
+    alignSelf: 'center',
+    minWidth: 200,
+    minHeight: 56,
+    borderRadius: 22,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 44,
+    shadowColor: '#10B981',
+    shadowOpacity: 0.4,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  androidBg: {
+    backgroundColor: 'rgba(6, 78, 59, 0.75)',
+  },
+  sheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 28,
+  },
+  label: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  border: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: 'rgba(167, 243, 208, 0.55)',
+  },
+});
+
 export default function PaymentRoute() {
   return (
     <RequireAuth>
-      <PaymentScreen />
+      <ErrorBoundary>
+        <PaymentScreen />
+      </ErrorBoundary>
     </RequireAuth>
   );
 }

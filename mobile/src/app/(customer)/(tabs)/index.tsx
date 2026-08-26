@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, Pressable, ActivityIndicator, Linking, StyleSheet } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, Linking, StyleSheet, Platform } from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import Animated, {
   FadeInUp,
   useSharedValue,
@@ -13,7 +14,11 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
+  withSpring,
+  withDelay,
   Easing,
+  interpolate,
+  interpolateColor,
 } from 'react-native-reanimated';
 import { User, MapPin, Star, Wrench, RefreshCw, BookOpen, ChevronLeft, Radio } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -30,8 +35,272 @@ import { TechnicianProfile, Location as LocationType, Job, JobStatus } from '@/l
 import { useSession } from '@/lib/auth/use-session';
 import { authClient } from '@/lib/auth/auth-client';
 import { formatJobReference } from '@/lib/job-reference';
+import { safeImageSource } from '@/lib/geo';
 
 const MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+
+/** Hero CTA — bold liquid glass + strong blue glow over the map */
+function RequestRepairGlowButton({
+  onPress,
+  label,
+}: {
+  onPress: () => void;
+  label: string;
+}) {
+  const pressed = useSharedValue(0);
+  const glow = useSharedValue(0.5);
+  const ring = useSharedValue(0);
+  const ring2 = useSharedValue(0);
+  const breathe = useSharedValue(1);
+
+  useEffect(() => {
+    glow.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0.45, { duration: 1400, easing: Easing.inOut(Easing.sin) })
+      ),
+      -1,
+      true
+    );
+    ring.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1800, easing: Easing.out(Easing.quad) }),
+        withTiming(0, { duration: 0 })
+      ),
+      -1
+    );
+    ring2.value = withDelay(
+      900,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1800, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 0 })
+        ),
+        -1
+      )
+    );
+    breathe.value = withRepeat(
+      withSequence(
+        withTiming(1.035, { duration: 1600, easing: Easing.inOut(Easing.sin) }),
+        withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.sin) })
+      ),
+      -1,
+      true
+    );
+  }, []);
+
+  const shellStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: breathe.value * interpolate(pressed.value, [0, 1], [1, 0.96]) },
+      { translateY: interpolate(pressed.value, [0, 1], [0, 3]) },
+    ],
+    shadowOpacity: interpolate(glow.value, [0.45, 1], [0.55, 0.95]),
+    shadowRadius: interpolate(glow.value, [0.45, 1], [22, 40]),
+  }));
+
+  const outerGlowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(glow.value, [0.45, 1], [0.45, 0.85]),
+    transform: [{ scale: interpolate(glow.value, [0.45, 1], [1, 1.08]) }],
+  }));
+
+  const haloStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(glow.value, [0.45, 1], [0.2, 0.5]),
+    transform: [{ scale: interpolate(glow.value, [0.45, 1], [1.02, 1.14]) }],
+  }));
+
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(ring.value, [0, 0.15, 1], [0.75, 0.45, 0]),
+    transform: [{ scale: interpolate(ring.value, [0, 1], [1, 1.18]) }],
+  }));
+
+  const ring2Style = useAnimatedStyle(() => ({
+    opacity: interpolate(ring2.value, [0, 0.15, 1], [0.55, 0.3, 0]),
+    transform: [{ scale: interpolate(ring2.value, [0, 1], [1, 1.22]) }],
+  }));
+
+  const borderGlowStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(
+      glow.value,
+      [0.45, 1],
+      ['rgba(147,197,253,0.75)', 'rgba(224,242,254,1)']
+    ),
+  }));
+
+  return (
+    <View style={ctaStyles.wrap}>
+      {/* Wide soft halo */}
+      <Animated.View style={[ctaStyles.halo, haloStyle]} pointerEvents="none" />
+      {/* Strong bloom */}
+      <Animated.View style={[ctaStyles.bloom, outerGlowStyle]} pointerEvents="none" />
+      {/* Double expanding pulse rings */}
+      <Animated.View style={[ctaStyles.pulseRing, ringStyle]} pointerEvents="none" />
+      <Animated.View style={[ctaStyles.pulseRingOuter, ring2Style]} pointerEvents="none" />
+
+      <Animated.View style={[ctaStyles.shell, shellStyle]}>
+        <Pressable
+          onPress={onPress}
+          accessibilityLabel={label}
+          accessibilityRole="button"
+          onPressIn={() => {
+            pressed.value = withSpring(1, { damping: 18, stiffness: 320 });
+          }}
+          onPressOut={() => {
+            pressed.value = withSpring(0, { damping: 16, stiffness: 280 });
+          }}
+          style={ctaStyles.pressable}
+        >
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={36} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, ctaStyles.androidGlass]} />
+          )}
+
+          {/* Richer, more opaque blue — still glassy */}
+          <LinearGradient
+            colors={[
+              'rgba(96,165,250,0.88)',
+              'rgba(37,99,235,0.92)',
+              'rgba(29,78,216,0.95)',
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+
+          {/* Bright top sheen */}
+          <LinearGradient
+            colors={['rgba(255,255,255,0.72)', 'rgba(255,255,255,0.18)', 'transparent']}
+            locations={[0, 0.4, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={ctaStyles.sheen}
+          />
+
+          {/* Inner highlight edge */}
+          <Animated.View style={[ctaStyles.border, borderGlowStyle]} pointerEvents="none" />
+
+          <View style={ctaStyles.row}>
+            <View style={ctaStyles.iconOrb}>
+              <LinearGradient
+                colors={['rgba(255,255,255,0.75)', 'rgba(191,219,254,0.35)']}
+                style={StyleSheet.absoluteFill}
+              />
+              <Wrench size={26} color="#FFFFFF" strokeWidth={2.6} />
+            </View>
+            <Text style={ctaStyles.label}>{label}</Text>
+          </View>
+        </Pressable>
+      </Animated.View>
+    </View>
+  );
+}
+
+const ctaStyles = StyleSheet.create({
+  wrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+  },
+  halo: {
+    position: 'absolute',
+    width: '112%',
+    height: 96,
+    borderRadius: 40,
+    backgroundColor: 'rgba(59,130,246,0.35)',
+  },
+  bloom: {
+    position: 'absolute',
+    width: '100%',
+    height: 80,
+    borderRadius: 32,
+    backgroundColor: 'rgba(37,99,235,0.7)',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 36,
+  },
+  pulseRing: {
+    position: 'absolute',
+    left: -6,
+    right: -6,
+    top: -2,
+    bottom: -2,
+    borderRadius: 32,
+    borderWidth: 2.5,
+    borderColor: 'rgba(147,197,253,0.9)',
+  },
+  pulseRingOuter: {
+    position: 'absolute',
+    left: -10,
+    right: -10,
+    top: -6,
+    bottom: -6,
+    borderRadius: 36,
+    borderWidth: 1.5,
+    borderColor: 'rgba(191,219,254,0.65)',
+  },
+  shell: {
+    width: '100%',
+    borderRadius: 28,
+    shadowColor: '#1D4ED8',
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 28,
+    elevation: 16,
+  },
+  pressable: {
+    borderRadius: 28,
+    overflow: 'hidden',
+    minHeight: 76,
+    justifyContent: 'center',
+  },
+  androidGlass: {
+    backgroundColor: 'rgba(59,130,246,0.55)',
+  },
+  sheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 40,
+  },
+  border: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 28,
+    borderWidth: 2,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 22,
+    gap: 14,
+  },
+  iconOrb: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.65)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    shadowColor: '#fff',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  label: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 22,
+    letterSpacing: 0.4,
+    textShadowColor: 'rgba(15,23,42,0.45)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+  },
+});
 
 function buildMapHtml(lat: number, lng: number): string {
   return `<!DOCTYPE html>
@@ -468,7 +737,8 @@ export default function CustomerHomeScreen() {
 
   const getDistance = (tech: TechnicianProfile): string => {
     if (!currentLocation || !tech.current_location) return '-';
-    return calculateDistance(currentLocation, tech.current_location).toFixed(1);
+    const km = calculateDistance(currentLocation, tech.current_location);
+    return Number.isFinite(km) ? km.toFixed(1) : '-';
   };
 
   const getEta = (tech: TechnicianProfile): number => {
@@ -490,36 +760,8 @@ export default function CustomerHomeScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      {/* Header */}
-      <View style={{ paddingTop: insets.top, backgroundColor: '#fff', zIndex: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View style={{ width: 40, height: 40, backgroundColor: '#DBEAFE', borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
-              {user?.image ? (
-                <Image source={{ uri: user.image }} style={{ width: 40, height: 40, borderRadius: 20 }} />
-              ) : (
-                <User size={20} color="#3B82F6" />
-              )}
-            </View>
-            <View>
-              <Text style={{ color: '#6B7280', fontSize: 12 }}>{t('hello')}</Text>
-              <Text style={{ color: '#111827', fontWeight: '700', fontSize: 15 }}>{user?.name ?? 'משתמש'}</Text>
-            </View>
-          </View>
-          <Pressable
-            onPress={handleRefresh}
-            accessibilityLabel={t('refresh')}
-            accessibilityRole="button"
-            style={{ width: 44, height: 44, backgroundColor: '#F3F4F6', borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <RefreshCw size={20} color="#6B7280" />
-          </Pressable>
-        </View>
-
-      </View>
-
-      {/* Map */}
+    <View style={{ flex: 1, backgroundColor: '#E5E7EB' }}>
+      {/* Map — full screen; header floats on top */}
       <View style={{ flex: 1 }}>
         {isLoading ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6' }}>
@@ -540,13 +782,145 @@ export default function CustomerHomeScreen() {
           />
         )}
 
-        {/* Center on User Button */}
+        {/* Floating glass header over map */}
+        <View
+          style={{
+            position: 'absolute',
+            top: insets.top + 10,
+            left: 14,
+            right: 14,
+            zIndex: 20,
+            borderRadius: 22,
+            overflow: 'hidden',
+            shadowColor: '#0F172A',
+            shadowOpacity: 0.14,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 8 },
+            elevation: 10,
+          }}
+        >
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(239,246,255,0.45)' }]} />
+          )}
+          {/* Very light transparent blue wash */}
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: 'rgba(191,219,254,0.28)' },
+            ]}
+          />
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 14,
+              paddingVertical: 12,
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: 'rgba(147,197,253,0.45)',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 }}>
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  backgroundColor: 'rgba(219,234,254,0.55)',
+                  borderRadius: 20,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderWidth: 1,
+                  borderColor: 'rgba(191,219,254,0.6)',
+                }}
+              >
+                {safeImageSource(user?.image) ? (
+                  <Image source={safeImageSource(user?.image)} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                ) : (
+                  <User size={20} color="#3B82F6" />
+                )}
+              </View>
+              <View style={{ flexShrink: 1, alignItems: 'flex-end' }}>
+                <Text style={{ color: 'rgba(37,99,235,0.75)', fontSize: 12, textAlign: 'right' }}>
+                  {t('hello')}
+                </Text>
+                <Text
+                  style={{ color: '#1E3A8A', fontWeight: '700', fontSize: 15, textAlign: 'right' }}
+                  numberOfLines={1}
+                >
+                  {user?.name ?? 'משתמש'}
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {!isLoading && !activeJob && (
+                <Pressable
+                  onPress={handleOpenTutorial}
+                  accessibilityLabel={t('tutorialGuide')}
+                  accessibilityRole="button"
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    backgroundColor: 'rgba(255,255,255,0.35)',
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: 'rgba(147,197,253,0.5)',
+                  }}
+                >
+                  <BookOpen size={12} color="#3B82F6" />
+                  <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '600' }}>{t('tutorialGuide')}</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={handleRefresh}
+                accessibilityLabel={t('refresh')}
+                accessibilityRole="button"
+                style={{
+                  width: 40,
+                  height: 40,
+                  backgroundColor: 'rgba(255,255,255,0.35)',
+                  borderRadius: 20,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderWidth: 1,
+                  borderColor: 'rgba(147,197,253,0.5)',
+                }}
+              >
+                <RefreshCw size={18} color="#3B82F6" />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+
+        {/* Center on User Button — below floating header */}
         {currentLocation && !isLoading && (
           <Pressable
             onPress={centerOnUser}
             accessibilityLabel={t('locationActive')}
             accessibilityRole="button"
-            style={{ position: 'absolute', top: 16, right: 16, width: 48, height: 48, backgroundColor: '#fff', borderRadius: 24, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4 }}
+            style={{
+              position: 'absolute',
+              top: insets.top + 86,
+              right: 16,
+              width: 48,
+              height: 48,
+              backgroundColor: 'rgba(255,255,255,0.92)',
+              borderRadius: 24,
+              alignItems: 'center',
+              justifyContent: 'center',
+              shadowColor: '#000',
+              shadowOpacity: 0.1,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 4,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.8)',
+            }}
           >
             <MapPin size={24} color="#3B82F6" />
           </Pressable>
@@ -559,8 +933,8 @@ export default function CustomerHomeScreen() {
               onPress={handleViewProfile}
               style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4, flexDirection: 'row', alignItems: 'center' }}
             >
-              {selectedTechnician.avatar_url ? (
-                <Image source={{ uri: selectedTechnician.avatar_url }} style={{ width: 56, height: 56, borderRadius: 28 }} />
+              {safeImageSource(selectedTechnician.avatar_url) ? (
+                <Image source={safeImageSource(selectedTechnician.avatar_url)} style={{ width: 56, height: 56, borderRadius: 28 }} />
               ) : (
                 <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ color: '#3B82F6', fontWeight: '700', fontSize: 22 }}>{selectedTechnician.name?.charAt(0) ?? '?'}</Text>
@@ -597,58 +971,14 @@ export default function CustomerHomeScreen() {
           onCancel={() => setLocationModalVisible(false)}
         />
 
-        {/* Tutorial */}
-        {!isLoading && !activeJob && (
-          <Pressable
-            onPress={handleOpenTutorial}
-            accessibilityLabel={t('tutorialGuide')}
-            accessibilityRole="button"
-            style={{
-              position: 'absolute',
-              bottom: 104,
-              left: 20,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 4,
-              paddingHorizontal: 10,
-              paddingVertical: 6,
-              backgroundColor: 'rgba(255,255,255,0.95)',
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: 'rgba(59,130,246,0.15)',
-              shadowColor: '#000',
-              shadowOpacity: 0.1,
-              shadowRadius: 6,
-              shadowOffset: { width: 0, height: 2 },
-              elevation: 3,
-            }}
-          >
-            <BookOpen size={12} color="#3B82F6" />
-            <Text style={{ color: '#3B82F6', fontSize: 11, fontWeight: '600' }}>{t('tutorialGuide')}</Text>
-          </Pressable>
-        )}
-
         {activeJob ? (
           <ActiveJobHeroCard job={activeJob} onPress={handleGoToActiveJob} t={t} />
         ) : (
           <View style={{ position: 'absolute', bottom: 32, left: 24, right: 24 }}>
-            <Pressable
+            <RequestRepairGlowButton
               onPress={handleRequestRepair}
-              accessibilityLabel={t('requestRepairNow')}
-              accessibilityRole="button"
-            >
-              <LinearGradient
-                colors={[...gradients.primary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={{ borderRadius: 16, padding: 16 }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                  <Wrench size={24} color="#fff" />
-                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 18, marginLeft: 12 }}>{t('requestRepairNow')}</Text>
-                </View>
-              </LinearGradient>
-            </Pressable>
+              label={t('requestRepairNow')}
+            />
           </View>
         )}
       </View>

@@ -264,13 +264,18 @@ export const mockReviews: Review[] = [
 
 // Helper function to calculate distance between two locations
 export function calculateDistance(loc1: Location, loc2: Location): number {
+  const lat1 = Number(loc1?.latitude);
+  const lng1 = Number(loc1?.longitude);
+  const lat2 = Number(loc2?.latitude);
+  const lng2 = Number(loc2?.longitude);
+  if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return Number.POSITIVE_INFINITY;
   const R = 6371; // Earth's radius in km
-  const dLat = ((loc2.latitude - loc1.latitude) * Math.PI) / 180;
-  const dLon = ((loc2.longitude - loc1.longitude) * Math.PI) / 180;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lng2 - lng1) * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((loc1.latitude * Math.PI) / 180) *
-      Math.cos((loc2.latitude * Math.PI) / 180) *
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));

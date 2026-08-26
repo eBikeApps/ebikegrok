@@ -348,7 +348,7 @@ export default function AdminScreen() {
                       <View className="flex-row items-center gap-1 mt-0.5">
                         <Star size={12} color="#F59E0B" fill="#F59E0B" />
                         <Text className="text-gray-600 text-xs">
-                          {tech.rating.toFixed(1)} ({tech.totalReviews ?? 0} {t('reviews')})
+                          {(tech.rating ?? 0).toFixed(1)} ({tech.totalReviews ?? 0} {t('reviews')})
                         </Text>
                       </View>
                     )}

@@ -209,6 +209,8 @@ export const translations = {
     support: 'תמיכה',
     faq: 'שאלות נפוצות',
     contactSupport2: 'יצירת קשר',
+    contactWhatsApp: 'תמיכה בוואטסאפ',
+    cancellationPolicy: 'מדיניות ביטול והחזרים',
     termsConditions: 'תנאי שימוש',
     privacyPolicy: 'מדיניות פרטיות',
 
@@ -343,7 +345,8 @@ export const translations = {
     // Profile
     signOutConfirmMsg: 'האם אתה בטוח שברצונך להתנתק?',
     photoUploadError: 'לא הצלחנו להעלות את התמונה. נסה שוב.',
-    faqContent: 'לתמיכה, פנה אלינו במייל: support@ebikeland.com',
+    faqContent:
+      'לתמיכה בוואטסאפ: +972-58-585-8586\nאימייל: support@ebikel.com\nאחרי תשלום אפשר לבטל דרך התמיכה (וואטסאפ או אימייל) — לא נחסם, רק מתואם מול הטכנאי.',
     termsContent: 'לצפייה במסמך המלא לחץ על תנאי שימוש בהגדרות.',
     privacyContent: 'לצפייה במסמך המלא לחץ על מדיניות פרטיות בהגדרות.',
     darkMode: 'מצב כהה',
@@ -559,6 +562,8 @@ export const translations = {
     support: 'Support',
     faq: 'FAQ',
     contactSupport2: 'Contact us',
+    contactWhatsApp: 'WhatsApp support',
+    cancellationPolicy: 'Cancellation & refunds',
     termsConditions: 'Terms & Conditions',
     privacyPolicy: 'Privacy Policy',
     dashboard: 'Dashboard',
@@ -677,7 +682,8 @@ export const translations = {
     // Profile
     signOutConfirmMsg: 'Are you sure you want to sign out?',
     photoUploadError: 'Could not upload image. Try again.',
-    faqContent: 'For support, contact us at: support@ebikeland.com',
+    faqContent:
+      'WhatsApp support: +972-58-585-8586\nEmail: support@ebikel.com\nAfter payment you can still cancel via support (WhatsApp or email) — we coordinate with the technician.',
     termsContent: 'Terms of service will be available soon.',
     privacyContent: 'Privacy policy will be available soon.',
     deleting: 'Deleting...',

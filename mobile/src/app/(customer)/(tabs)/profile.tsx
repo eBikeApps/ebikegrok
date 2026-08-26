@@ -38,6 +38,7 @@ import { useSession, useSignOut, SESSION_QUERY_KEY } from '@/lib/auth/use-sessio
 import { authClient } from '@/lib/auth/auth-client';
 import { api } from '@/lib/api/api';
 import Constants from 'expo-constants';
+import { openSupportWhatsApp } from '@/lib/support';
 
 interface SettingItem {
   icon: typeof Bell;
@@ -251,9 +252,15 @@ export default function ProfileScreen() {
         },
         {
           icon: MessageCircle,
-          label: t('contactSupport2'),
+          label: t('contactWhatsApp'),
           type: 'link',
-          onPress: () => { Linking.openURL('mailto:support@ebikeland.com'); },
+          onPress: () => openSupportWhatsApp(),
+        },
+        {
+          icon: FileText,
+          label: t('cancellationPolicy'),
+          type: 'link',
+          onPress: () => router.push({ pathname: '/legal', params: { type: 'cancellation' } }),
         },
         {
           icon: FileText,

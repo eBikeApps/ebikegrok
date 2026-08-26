@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import Animated, {
   FadeInUp,
   useSharedValue,
@@ -11,7 +12,7 @@ import Animated, {
   withTiming,
   interpolate,
 } from 'react-native-reanimated';
-import { Search, Clock, X } from 'lucide-react-native';
+import { Search, X } from 'lucide-react-native';
 import { brand, gradients } from '@/lib/brand-colors';
 import { DotLoader } from './DotLoader';
 
@@ -66,111 +67,249 @@ export function WaitingScreen({ onCancel }: { onCancel: () => void }) {
   const iconStyle = useAnimatedStyle(() => ({ transform: [{ scale: iconScale.value }] }));
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
+    <View style={styles.root}>
       <LinearGradient
         colors={['#0F172A', '#1E293B', '#0F172A']}
-        style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+        style={styles.gradient}
       >
-        <View style={{ width: 200, height: 200, alignItems: 'center', justifyContent: 'center' }}>
-          <Animated.View
-            style={[
-              { position: 'absolute', width: 200, height: 200, borderRadius: 100, borderWidth: 2, borderColor: brand.primary },
-              ring3Style,
-            ]}
-          />
-          <Animated.View
-            style={[
-              { position: 'absolute', width: 160, height: 160, borderRadius: 80, borderWidth: 2, borderColor: brand.primary },
-              ring2Style,
-            ]}
-          />
-          <Animated.View
-            style={[
-              { position: 'absolute', width: 120, height: 120, borderRadius: 60, borderWidth: 2, borderColor: brand.primary },
-              ring1Style,
-            ]}
-          />
+        <View style={styles.ringsWrap}>
+          <Animated.View style={[styles.ring, styles.ringOuter, ring3Style]} />
+          <Animated.View style={[styles.ring, styles.ringMid, ring2Style]} />
+          <Animated.View style={[styles.ring, styles.ringInner, ring1Style]} />
           <Animated.View style={iconStyle}>
             <LinearGradient
               colors={[...gradients.primaryDeep]}
-              style={{
-                width: 88,
-                height: 88,
-                borderRadius: 44,
-                alignItems: 'center',
-                justifyContent: 'center',
-                shadowColor: brand.primary,
-                shadowOffset: { width: 0, height: 8 },
-                shadowOpacity: 0.5,
-                shadowRadius: 20,
-              }}
+              style={styles.iconOrb}
             >
               <Search size={38} color="#fff" />
             </LinearGradient>
           </Animated.View>
         </View>
 
-        <Animated.View entering={FadeInUp.delay(300).duration(500)} style={{ alignItems: 'center', marginTop: 36, paddingHorizontal: 32 }}>
-          <Text style={{ color: '#F8FAFC', fontSize: 26, fontWeight: '800', textAlign: 'center', marginBottom: 12 }}>
-            מחפשים טכנאי...
-          </Text>
-          <Text style={{ color: '#94A3B8', fontSize: 16, textAlign: 'center', lineHeight: 24 }}>
-            ממתינים לאישור טכנאי שיגיע אליך בהקדם
+        <Animated.View entering={FadeInUp.delay(300).duration(500)} style={styles.titleBlock}>
+          <Text style={styles.title}>יוצרים קשר עם הטכנאי</Text>
+          <Text style={styles.subtitle}>
+            עד 5 דקות לתשובה,{'\n'}בדרך כלל תוך כמה שניות
           </Text>
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(500).duration(400)} style={{ flexDirection: 'row', gap: 8, marginTop: 32 }}>
+        <Animated.View entering={FadeInUp.delay(500).duration(400)} style={styles.dots}>
           {[0, 1, 2].map((i) => (
             <DotLoader key={i} delay={i * 200} />
           ))}
         </Animated.View>
 
-        <Animated.View
-          entering={FadeInUp.delay(700).duration(500)}
-          style={{
-            marginTop: 48,
-            marginHorizontal: 24,
-            backgroundColor: 'rgba(255,255,255,0.06)',
-            borderRadius: 20,
-            padding: 20,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.1)',
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#FEF3C7', alignItems: 'center', justifyContent: 'center' }}>
-              <Clock size={20} color="#D97706" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '700' }}>זמן ממוצע לאישור</Text>
-              <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 2 }}>בדרך כלל עד 2-3 דקות</Text>
-            </View>
+        {/* Glass info card */}
+        <Animated.View entering={FadeInUp.delay(700).duration(500)} style={styles.infoCard}>
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, styles.infoCardAndroid]} />
+          )}
+          <View style={[StyleSheet.absoluteFill, styles.infoCardWash]} />
+          <View style={styles.infoCardInner}>
+            <Text style={styles.infoTitle}>עד 5 דקות לתשובה</Text>
+            <Text style={styles.infoSub}>בדרך כלל תוך כמה שניות</Text>
           </View>
+          <View style={styles.infoCardBorder} pointerEvents="none" />
         </Animated.View>
 
+        {/* Glass cancel — large centered tile */}
         <Animated.View
           entering={FadeInUp.delay(900).duration(400)}
-          style={{ marginTop: 'auto', paddingBottom: insets.bottom + 24, paddingHorizontal: 24, width: '100%' }}
+          style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}
         >
           <Pressable
             onPress={onCancel}
-            style={({ pressed }) => ({
-              backgroundColor: pressed ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.08)',
-              borderRadius: 16,
-              paddingVertical: 16,
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexDirection: 'row',
-              gap: 8,
-              borderWidth: 1,
-              borderColor: 'rgba(239,68,68,0.25)',
-            })}
+            style={({ pressed }) => [styles.cancelBtn, pressed && styles.cancelBtnPressed]}
           >
-            <X size={18} color="#EF4444" />
-            <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '600' }}>בטל הזמנה</Text>
+            {Platform.OS === 'ios' ? (
+              <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, styles.cancelAndroid]} />
+            )}
+            <LinearGradient
+              colors={['rgba(248,113,113,0.32)', 'rgba(239,68,68,0.2)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={['rgba(255,255,255,0.22)', 'transparent']}
+              style={styles.cancelSheen}
+            />
+            <View style={styles.cancelContent}>
+              <X size={26} color="#FECACA" strokeWidth={2.6} />
+              <Text style={styles.cancelText}>בטל הזמנה</Text>
+            </View>
+            <View style={styles.cancelBorder} pointerEvents="none" />
           </Pressable>
         </Animated.View>
       </LinearGradient>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+  },
+  gradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringsWrap: {
+    width: 200,
+    height: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ring: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: brand.primary,
+  },
+  ringOuter: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+  },
+  ringMid: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+  },
+  ringInner: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  iconOrb: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: brand.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+  },
+  titleBlock: {
+    alignItems: 'center',
+    marginTop: 36,
+    paddingHorizontal: 32,
+  },
+  title: {
+    color: '#F8FAFC',
+    fontSize: 26,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  subtitle: {
+    color: '#94A3B8',
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  dots: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 32,
+  },
+  infoCard: {
+    marginTop: 48,
+    marginHorizontal: 24,
+    borderRadius: 22,
+    overflow: 'hidden',
+    alignSelf: 'stretch',
+    shadowColor: '#3B82F6',
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  infoCardAndroid: {
+    backgroundColor: 'rgba(30, 41, 59, 0.85)',
+  },
+  infoCardWash: {
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
+  },
+  infoCardInner: {
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+  },
+  infoCardBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(147, 197, 253, 0.28)',
+  },
+  infoTitle: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  infoSub: {
+    color: '#94A3B8',
+    fontSize: 13,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  footer: {
+    marginTop: 'auto',
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  cancelBtn: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    minHeight: 72,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#EF4444',
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  cancelBtnPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.985 }],
+  },
+  cancelAndroid: {
+    backgroundColor: 'rgba(30, 41, 59, 0.92)',
+  },
+  cancelSheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 36,
+  },
+  cancelContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  cancelText: {
+    color: '#FECACA',
+    fontSize: 19,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  cancelBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: 'rgba(248, 113, 113, 0.5)',
+  },
+});

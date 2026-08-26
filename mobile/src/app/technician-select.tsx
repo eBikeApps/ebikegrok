@@ -1,27 +1,38 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, Text, Pressable, ScrollView, I18nManager, ActivityIndicator, Linking, RefreshControl } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  I18nManager,
+  ActivityIndicator,
+  Linking,
+  RefreshControl,
+  StyleSheet,
+  Platform,
+} from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
 import { RequireAuth } from '@/components/RequireAuth';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
 import { ChevronLeft, ChevronRight, Star, Clock, MapPin, Filter, MessageCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { Platform } from 'react-native';
 import { useLanguageStore, useLocationStore, useRepairRequestStore, useActiveJobStore, useOrdersStore } from '@/lib/store';
 import { playSystemSound } from '@/lib/system-sounds';
 import { getAvailableTechnicians, TechnicianWithDistance } from '@/lib/api/technicians';
 import { getEffectiveCustomerLocation } from '@/lib/customer-location';
 import { TechnicianProfile, TechnicianSortOption, Job } from '@/lib/types';
-import { cn } from '@/lib/cn';
 import { api } from '@/lib/api/api';
+import { fetchCustomerActiveJob } from '@/lib/active-job-sync';
 import { useSession } from '@/lib/auth/use-session';
 import { uploadJobPhoto } from '@/lib/upload-job-photo';
 import { formatJobReference } from '@/lib/job-reference';
-import { gradients } from '@/lib/brand-colors';
+import { safeImageSource } from '@/lib/geo';
 
 function TechnicianSelectScreen() {
   const router = useRouter();
@@ -58,7 +69,9 @@ function TechnicianSelectScreen() {
       : null;
 
   const jobLocation = addressLocation ?? getEffectiveCustomerLocation(currentLocation);
-  const effectiveLocation = jobLocation;
+  const jobLat = Number(jobLocation?.latitude);
+  const jobLng = Number(jobLocation?.longitude);
+  const hasValidJobLocation = Number.isFinite(jobLat) && Number.isFinite(jobLng);
 
   const BackIcon = I18nManager.isRTL ? ChevronRight : ChevronLeft;
 
@@ -73,37 +86,52 @@ function TechnicianSelectScreen() {
     try {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
-      const techs = await getAvailableTechnicians(jobLocation);
-      setTechnicians(techs);
+      const loc = hasValidJobLocation
+        ? { latitude: jobLat, longitude: jobLng }
+        : getEffectiveCustomerLocation(currentLocation);
+      const techs = await getAvailableTechnicians(loc);
+      setTechnicians(Array.isArray(techs) ? techs : []);
     } catch (error) {
       console.error('Error loading technicians:', error);
+      setTechnicians([]);
       setInfoModal({ visible: true, title: t('error'), message: t('networkError'), onConfirm: undefined });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [jobLocation.latitude, jobLocation.longitude, t]);
+  }, [hasValidJobLocation, jobLat, jobLng, currentLocation, t]);
 
   useEffect(() => {
     if (session?.user) {
       fetchTechnicians();
     }
-  }, [jobLocation.latitude, jobLocation.longitude, session?.user]);
+  }, [session?.user, fetchTechnicians]);
 
   const sortedTechnicians = useMemo(() => {
     const sorted = [...technicians];
 
     switch (sortOption) {
       case 'nearest':
-        return sorted.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+        return sorted.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
       case 'highest_rated':
-        return sorted.sort((a, b) => b.rating - a.rating);
+        return sorted.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
       case 'lowest_price':
-        return sorted.sort((a, b) => a.base_price - b.base_price);
+        return sorted.sort((a, b) => (a.base_price ?? 0) - (b.base_price ?? 0));
       default:
         return sorted;
     }
   }, [technicians, sortOption]);
+
+  const mapTechnicians = useMemo(
+    () =>
+      sortedTechnicians.filter(
+        (tech) =>
+          tech.current_location &&
+          Number.isFinite(tech.current_location.latitude) &&
+          Number.isFinite(tech.current_location.longitude)
+      ),
+    [sortedTechnicians]
+  );
 
   const handleBack = () => {
     Haptics.selectionAsync();
@@ -150,7 +178,15 @@ function TechnicianSelectScreen() {
 
       const customerId = session?.user?.id;
       if (!customerId) {
-        setInfoModal({ visible: true, title: t('error'), message: t('somethingWentWrong'), onConfirm: undefined });
+        setInfoModal({
+          visible: true,
+          title: t('error'),
+          message:
+            language === 'he'
+              ? 'החיבור לחשבון אבד זמנית. נסה שוב בעוד רגע.'
+              : 'Session temporarily unavailable. Please try again.',
+          onConfirm: undefined,
+        });
         return;
       }
 
@@ -243,7 +279,6 @@ function TechnicianSelectScreen() {
               return;
             }
             try {
-              const { fetchCustomerActiveJob } = await import('@/lib/active-job-sync');
               const existing = await fetchCustomerActiveJob();
               if (existing?.id) {
                 setActiveJob(existing);
@@ -325,36 +360,56 @@ function TechnicianSelectScreen() {
   const jobTotal = repairRequest?.estimated_price_max ?? null;
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-4 py-3 bg-white border-b border-gray-100">
-        <Pressable
-          onPress={handleBack}
-          className="w-10 h-10 items-center justify-center"
-        >
-          <BackIcon size={24} color="#374151" />
-        </Pressable>
-        <Text className="text-lg font-bold text-gray-900">{t('selectTechnician')}</Text>
-        <View className="w-10" />
+    <SafeAreaView style={tsStyles.screen} edges={['top', 'bottom']}>
+      {/* Glass header */}
+      <View style={tsStyles.headerWrap}>
+        <View style={tsStyles.headerCard}>
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={42} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, tsStyles.androidGlass]} />
+          )}
+          <View style={[StyleSheet.absoluteFill, tsStyles.blueWash]} />
+          <View style={tsStyles.headerInner}>
+            <Pressable onPress={handleBack} style={tsStyles.backBtn} hitSlop={8}>
+              <BackIcon size={22} color="#1E40AF" />
+            </Pressable>
+            <View style={tsStyles.titleBlock}>
+              <Text style={tsStyles.kicker}>
+                {language === 'he' ? 'בחירת טכנאי' : 'Choose technician'}
+              </Text>
+              <Text style={tsStyles.pageTitle}>{t('selectTechnician')}</Text>
+            </View>
+            <View style={{ width: 40 }} />
+          </View>
+          <View style={tsStyles.headerBorder} pointerEvents="none" />
+        </View>
       </View>
 
       {jobTotal != null && (
-        <View className="bg-blue-50 px-4 py-3 border-b border-blue-100">
-          <Text className="text-blue-800 font-bold text-center text-base">
+        <View style={tsStyles.totalPill}>
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, tsStyles.androidGlass]} />
+          )}
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(191,219,254,0.35)' }]} />
+          <Text style={tsStyles.totalText}>
             {t('repairTotal')}: ₪{jobTotal}
           </Text>
+          <View style={tsStyles.totalBorder} pointerEvents="none" />
         </View>
       )}
 
-      {/* Mini Map */}
-      {effectiveLocation && (
-        <View className="h-48 bg-gray-200">
+      {/* Mini map in glass frame */}
+      {hasValidJobLocation && (
+        <View style={tsStyles.mapFrame}>
           <MapView
             style={{ flex: 1 }}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             initialRegion={{
-              latitude: effectiveLocation.latitude,
-              longitude: effectiveLocation.longitude,
+              latitude: jobLat,
+              longitude: jobLng,
               latitudeDelta: 0.05,
               longitudeDelta: 0.05,
             }}
@@ -362,7 +417,7 @@ function TechnicianSelectScreen() {
             zoomEnabled={false}
             showsUserLocation
           >
-            {sortedTechnicians.map((tech) => (
+            {mapTechnicians.map((tech) => (
               <Marker
                 key={tech.id}
                 coordinate={{
@@ -370,54 +425,45 @@ function TechnicianSelectScreen() {
                   longitude: tech.current_location!.longitude,
                 }}
               >
-                <View className="w-8 h-8 bg-green-500 rounded-full items-center justify-center border-2 border-white">
-                  <Text className="text-white text-xs font-bold">🔧</Text>
+                <View style={tsStyles.mapMarker}>
+                  <Text style={{ fontSize: 12 }}>🔧</Text>
                 </View>
               </Marker>
             ))}
           </MapView>
+          <View style={tsStyles.mapBorder} pointerEvents="none" />
         </View>
       )}
 
-      {/* Filter Chips */}
+      {/* Glass filter chips */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        className="bg-white px-4 py-3 border-b border-gray-100"
-        contentContainerStyle={{ gap: 8 }}
-        style={{ flexGrow: 0 }}
+        contentContainerStyle={tsStyles.chipsRow}
+        style={tsStyles.chipsScroll}
       >
-        {sortOptions.map((option) => (
-          <Pressable
-            key={option.key}
-            onPress={() => handleSortChange(option.key)}
-            className={cn(
-              'flex-row items-center px-4 py-2 rounded-full border',
-              sortOption === option.key
-                ? 'bg-blue-500 border-blue-500'
-                : 'bg-white border-gray-200'
-            )}
-          >
-            <Filter
-              size={14}
-              color={sortOption === option.key ? '#fff' : '#6B7280'}
-            />
-            <Text
-              className={cn(
-                'ml-2 font-medium',
-                sortOption === option.key ? 'text-white' : 'text-gray-600'
-              )}
+        {sortOptions.map((option) => {
+          const active = sortOption === option.key;
+          return (
+            <Pressable
+              key={option.key}
+              onPress={() => handleSortChange(option.key)}
+              style={[tsStyles.chip, active && tsStyles.chipActive]}
             >
-              {option.label}
-            </Text>
-          </Pressable>
-        ))}
+              <Filter size={14} color={active ? '#fff' : '#2563EB'} />
+              <Text style={[tsStyles.chipText, active && tsStyles.chipTextActive]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </ScrollView>
 
       {/* Technicians List */}
       <ScrollView
-        className="flex-1 px-4 py-4"
-        contentContainerStyle={{ paddingBottom: 20 }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 28, paddingTop: 8 }}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -427,180 +473,227 @@ function TechnicianSelectScreen() {
         }
       >
         {loading ? (
-          <View className="flex-1 items-center justify-center py-20">
+          <View style={tsStyles.centerState}>
             <ActivityIndicator size="large" color="#3B82F6" />
-            <Text className="text-gray-500 mt-4">{t('loading')}...</Text>
+            <Text style={tsStyles.muted}>{t('loading')}...</Text>
           </View>
         ) : sortedTechnicians.length === 0 ? (
-          <View className="flex-1 items-center justify-center py-20 px-6">
-            <View className="w-20 h-20 bg-gray-100 rounded-full items-center justify-center mb-4">
-              <MapPin size={40} color="#9CA3AF" />
+          <View style={tsStyles.centerState}>
+            <View style={tsStyles.emptyOrb}>
+              <MapPin size={36} color="#3B82F6" />
             </View>
-            <Text className="text-gray-900 font-bold text-xl mb-2 text-center">אין טכנאים זמינים</Text>
-            <Text className="text-gray-500 text-center mb-8">לא נמצאו טכנאים זמינים באזור שלך כרגע</Text>
+            <Text style={tsStyles.emptyTitle}>אין טכנאים זמינים</Text>
+            <Text style={tsStyles.emptySub}>לא נמצאו טכנאים זמינים באזור שלך כרגע</Text>
 
-            {/* Send Details to Representative Button */}
             <Pressable
               onPress={handleSendDetailsToRepresentative}
               disabled={sendingDetails}
-              className="w-full max-w-sm"
+              style={({ pressed }) => [tsStyles.whatsappCta, pressed && { opacity: 0.9 }]}
             >
               <LinearGradient
-                colors={[...gradients.primary]}
+                colors={[
+                  'rgba(96,165,250,0.95)',
+                  'rgba(37,99,235,0.98)',
+                  'rgba(29,78,216,1)',
+                ]}
                 start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={{ borderRadius: 16, paddingVertical: 16, paddingHorizontal: 24 }}
-              >
-                <View className="flex-row items-center justify-center">
-                  {sendingDetails ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <MessageCircle size={20} color="#fff" />
-                      <Text className="text-white font-bold text-lg mr-2">צור קשר בוואטסאפ</Text>
-                    </>
-                  )}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              {sendingDetails ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <View style={tsStyles.whatsappRow}>
+                  <MessageCircle size={20} color="#fff" />
+                  <Text style={tsStyles.whatsappText}>צור קשר בוואטסאפ</Text>
                 </View>
-              </LinearGradient>
+              )}
             </Pressable>
-
-            <Text className="text-gray-400 text-sm text-center mt-4 px-6">
-              נציג יצור איתך קשר בהקדם האפשרי
-            </Text>
+            <Text style={tsStyles.emptyHint}>נציג יצור איתך קשר בהקדם האפשרי</Text>
           </View>
         ) : (
           sortedTechnicians.map((tech, index) => (
-          <Animated.View
-            key={tech.id}
-            entering={FadeInUp.delay(index * 100).duration(400)}
-          >
-            <Pressable
-              onPress={() => handleViewProfile(tech.id)}
-              className="bg-white rounded-2xl p-4 mb-3 shadow-sm shadow-black/5 active:opacity-95"
+            <Animated.View
+              key={tech.id}
+              entering={FadeInUp.delay(index * 80).duration(380)}
             >
-              <View className="flex-row">
-                {/* Avatar */}
-                <Pressable onPress={() => handleViewProfile(tech.id)}>
-                  <Image
-                    source={{ uri: tech.avatar_url }}
-                    style={{ width: 60, height: 60, borderRadius: 30 }}
-                  />
-                </Pressable>
-
-                {/* Info */}
-                <View className="flex-1 mx-3">
-                  <Text className="text-gray-900 font-bold text-lg">{tech.name}</Text>
-
-                  {/* Rating */}
-                  <View className="flex-row items-center mt-1">
-                    <Star size={14} color="#F59E0B" fill="#F59E0B" />
-                    <Text className="text-gray-600 text-sm ml-1">
-                      {tech.rating} ({tech.total_reviews} {t('reviews')})
-                    </Text>
-                  </View>
-
-                  {/* Distance & ETA */}
-                  <View className="flex-row items-center mt-2 gap-4">
-                    <View className="flex-row items-center">
-                      <MapPin size={14} color="#6B7280" />
-                      <Text className="text-gray-500 text-sm ml-1">
-                        {tech.distance.toFixed(1)} {t('kmAway')}
-                      </Text>
-                    </View>
-                    <View className="flex-row items-center">
-                      <Clock size={14} color="#10B981" />
-                      <Text className="text-green-600 text-sm ml-1 font-medium">
-                        {t('arrivalTime')}: {tech.eta} {t('minutes')}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Select Button */}
               <Pressable
-                onPress={() => handleSelectTechnician(tech)}
-                className="mt-4 bg-blue-500 rounded-xl py-3 items-center active:bg-blue-600"
+                onPress={() => handleViewProfile(tech.id)}
+                style={({ pressed }) => [tsStyles.techCard, pressed && { opacity: 0.96 }]}
               >
-                <Text className="text-white font-bold">{t('selectAndBook')}</Text>
+                {Platform.OS === 'ios' ? (
+                  <BlurView intensity={36} tint="light" style={StyleSheet.absoluteFill} />
+                ) : (
+                  <View style={[StyleSheet.absoluteFill, tsStyles.androidGlass]} />
+                )}
+                <View style={[StyleSheet.absoluteFill, tsStyles.blueWash]} />
+
+                <View style={tsStyles.techCardInner}>
+                  <View style={tsStyles.techRow}>
+                    {safeImageSource(tech.avatar_url) ? (
+                      <Image
+                        source={safeImageSource(tech.avatar_url)}
+                        style={tsStyles.avatar}
+                      />
+                    ) : (
+                      <View style={tsStyles.avatarFallback}>
+                        <Text style={tsStyles.avatarLetter}>
+                          {(tech.name || '?').charAt(0)}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={tsStyles.techInfo}>
+                      <Text style={tsStyles.techName}>{tech.name || '—'}</Text>
+                      <View style={tsStyles.metaRow}>
+                        <Star size={14} color="#F59E0B" fill="#F59E0B" />
+                        <Text style={tsStyles.metaText}>
+                          {(tech.rating ?? 0).toFixed(1)} ({tech.total_reviews ?? 0} {t('reviews')})
+                        </Text>
+                      </View>
+                      <View style={[tsStyles.metaRow, { marginTop: 6, gap: 14 }]}>
+                        <View style={tsStyles.metaRow}>
+                          <MapPin size={14} color="#64748B" />
+                          <Text style={tsStyles.metaText}>
+                            {(Number.isFinite(tech.distance) ? tech.distance : 0).toFixed(1)} {t('kmAway')}
+                          </Text>
+                        </View>
+                        <View style={tsStyles.metaRow}>
+                          <Clock size={14} color="#059669" />
+                          <Text style={tsStyles.etaText}>
+                            {t('arrivalTime')}: {Number.isFinite(tech.eta) ? tech.eta : '—'} {t('minutes')}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+
+                  <Pressable
+                    onPress={() => handleSelectTechnician(tech)}
+                    style={({ pressed }) => [tsStyles.selectBtn, pressed && { opacity: 0.9 }]}
+                  >
+                    <LinearGradient
+                      colors={[
+                        'rgba(96,165,250,0.95)',
+                        'rgba(37,99,235,0.98)',
+                        'rgba(29,78,216,1)',
+                      ]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.4)', 'transparent']}
+                      style={tsStyles.selectSheen}
+                    />
+                    <Text style={tsStyles.selectBtnText}>{t('selectAndBook')}</Text>
+                  </Pressable>
+                </View>
+                <View style={tsStyles.techCardBorder} pointerEvents="none" />
               </Pressable>
-            </Pressable>
-          </Animated.View>
+            </Animated.View>
           ))
         )}
       </ScrollView>
 
-      {/* Confirmation Modal */}
+      {/* Confirmation sheet — glass style */}
       {showConfirmModal && selectedTechnician && (
         <Animated.View
           entering={FadeIn.duration(200)}
-          className="absolute inset-0 bg-black/50 justify-end"
+          style={confirmStyles.overlay}
         >
           <Pressable
-            className="flex-1"
+            style={StyleSheet.absoluteFill}
             onPress={() => setShowConfirmModal(false)}
           />
-          <Animated.View
-            entering={FadeInUp.duration(300)}
-            className="bg-white rounded-t-3xl p-6"
-          >
-            <View className="w-12 h-1 bg-gray-300 rounded-full self-center mb-6" />
+          <Animated.View entering={FadeInUp.duration(300)} style={confirmStyles.sheet}>
+            {Platform.OS === 'ios' ? (
+              <BlurView intensity={48} tint="light" style={StyleSheet.absoluteFill} />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, confirmStyles.androidGlass]} />
+            )}
+            <View style={[StyleSheet.absoluteFill, confirmStyles.blueWash]} />
 
-            <Text className="text-xl font-bold text-gray-900 text-center mb-6">
-              {t('confirmBooking')}
-            </Text>
+            <View style={confirmStyles.sheetInner}>
+              <View style={confirmStyles.handle} />
 
-            <View className="flex-row items-center bg-gray-50 rounded-2xl p-4 mb-6">
-              <Image
-                source={{ uri: selectedTechnician.avatar_url }}
-                style={{ width: 56, height: 56, borderRadius: 28 }}
-              />
-              <View className="flex-1 mx-3">
-                <Text className="text-gray-900 font-bold text-lg">
-                  {selectedTechnician.name}
-                </Text>
-                <View className="flex-row items-center mt-1">
-                  <Star size={14} color="#F59E0B" fill="#F59E0B" />
-                  <Text className="text-gray-600 text-sm ml-1">
-                    {selectedTechnician.rating}
+              <Text style={confirmStyles.kicker}>
+                {language === 'he' ? 'סיכום בחירה' : 'Booking summary'}
+              </Text>
+              <Text style={confirmStyles.title}>{t('confirmBooking')}</Text>
+
+              {/* Technician glass card */}
+              <View style={confirmStyles.techCard}>
+                {safeImageSource(selectedTechnician.avatar_url) ? (
+                  <Image
+                    source={safeImageSource(selectedTechnician.avatar_url)}
+                    style={{ width: 56, height: 56, borderRadius: 28 }}
+                  />
+                ) : (
+                  <View style={confirmStyles.avatarFallback}>
+                    <Text style={confirmStyles.avatarLetter}>
+                      {(selectedTechnician.name || '?').charAt(0)}
+                    </Text>
+                  </View>
+                )}
+                <View style={{ flex: 1, marginHorizontal: 12 }}>
+                  <Text style={confirmStyles.techName} numberOfLines={1}>
+                    {selectedTechnician.name || '—'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                    <Star size={14} color="#F59E0B" fill="#F59E0B" />
+                    <Text style={confirmStyles.ratingText}>
+                      {(selectedTechnician.rating ?? 0).toFixed(1)}
+                    </Text>
+                  </View>
+                </View>
+                <View style={confirmStyles.etaPill}>
+                  <Clock size={14} color="#059669" />
+                  <Text style={confirmStyles.etaText}>
+                    {Number.isFinite(selectedTechnician.eta) ? selectedTechnician.eta : '—'}{' '}
+                    {t('minutes')}
                   </Text>
                 </View>
               </View>
-              <View className="items-end">
-                <View className="flex-row items-center">
-                  <Clock size={16} color="#10B981" />
-                  <Text className="text-green-600 font-bold ml-1">
-                    {t('arrivalTime')}: {selectedTechnician.eta} {t('minutes')}
-                  </Text>
-                </View>
-              </View>
-            </View>
 
-            {/* Confirm Button */}
-            <Pressable onPress={handleConfirmBooking} disabled={bookingLoading} className="mb-3">
-              <LinearGradient
-                colors={[...gradients.primary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={{ borderRadius: 16, paddingVertical: 16, alignItems: 'center' }}
+              {/* Confirm CTA — glass blue */}
+              <Pressable
+                onPress={handleConfirmBooking}
+                disabled={bookingLoading}
+                style={[confirmStyles.primaryCta, bookingLoading && { opacity: 0.7 }]}
               >
+                <LinearGradient
+                  colors={[
+                    'rgba(96,165,250,0.92)',
+                    'rgba(37,99,235,0.96)',
+                    'rgba(29,78,216,0.98)',
+                  ]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <LinearGradient
+                  colors={['rgba(255,255,255,0.45)', 'transparent']}
+                  style={confirmStyles.primarySheen}
+                />
                 {bookingLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text className="text-white font-bold text-lg">
-                    {t('confirmBooking')}
-                  </Text>
+                  <Text style={confirmStyles.primaryText}>{t('confirmBooking')}</Text>
                 )}
-              </LinearGradient>
-            </Pressable>
+                <View style={confirmStyles.primaryBorder} pointerEvents="none" />
+              </Pressable>
 
-            {/* Cancel Button */}
-            <Pressable
-              onPress={() => setShowConfirmModal(false)}
-              className="py-3 items-center"
-            >
-              <Text className="text-gray-500 font-medium">{t('cancel')}</Text>
-            </Pressable>
+              {/* Cancel — glass secondary */}
+              <Pressable
+                onPress={() => setShowConfirmModal(false)}
+                style={confirmStyles.cancelBtn}
+              >
+                <Text style={confirmStyles.cancelText}>{t('cancel')}</Text>
+              </Pressable>
+            </View>
+
+            <View style={confirmStyles.sheetBorder} pointerEvents="none" />
           </Animated.View>
         </Animated.View>
       )}
@@ -620,6 +713,464 @@ function TechnicianSelectScreen() {
     </SafeAreaView>
   );
 }
+
+const tsStyles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#EBF4FF',
+  },
+  androidGlass: {
+    backgroundColor: 'rgba(239, 246, 255, 0.92)',
+  },
+  blueWash: {
+    backgroundColor: 'rgba(191, 219, 254, 0.32)',
+  },
+  headerWrap: {
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 8,
+  },
+  headerCard: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  headerInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.5)',
+  },
+  titleBlock: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  kicker: {
+    color: 'rgba(37,99,235,0.7)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  pageTitle: {
+    color: '#1E3A8A',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  headerBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.5)',
+  },
+  totalPill: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderRadius: 16,
+    overflow: 'hidden',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  totalText: {
+    color: '#1D4ED8',
+    fontWeight: '800',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  totalBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.5)',
+  },
+  mapFrame: {
+    height: 160,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#E2E8F0',
+  },
+  mapBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(147,197,253,0.55)',
+  },
+  mapMarker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#22C55E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  chipsScroll: {
+    flexGrow: 0,
+    marginBottom: 4,
+  },
+  chipsRow: {
+    paddingHorizontal: 16,
+    gap: 8,
+    paddingVertical: 6,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.65)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(147,197,253,0.55)',
+  },
+  chipActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  chipText: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  chipTextActive: {
+    color: '#fff',
+  },
+  centerState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 20,
+  },
+  muted: {
+    color: '#64748B',
+    marginTop: 14,
+    fontWeight: '600',
+  },
+  emptyOrb: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(219,234,254,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.5)',
+  },
+  emptyTitle: {
+    color: '#0F172A',
+    fontWeight: '800',
+    fontSize: 20,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptySub: {
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  emptyHint: {
+    color: '#94A3B8',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 14,
+  },
+  whatsappCta: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 18,
+    overflow: 'hidden',
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  whatsappRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  whatsappText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  techCard: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    marginBottom: 12,
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  techCardInner: {
+    padding: 16,
+  },
+  techCardBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: 'rgba(147,197,253,0.5)',
+  },
+  techRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  avatarFallback: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(219,234,254,0.95)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.55)',
+  },
+  avatarLetter: {
+    color: '#2563EB',
+    fontWeight: '800',
+    fontSize: 22,
+  },
+  techInfo: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+  techName: {
+    color: '#0F172A',
+    fontWeight: '800',
+    fontSize: 17,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  metaText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  etaText: {
+    color: '#059669',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  selectBtn: {
+    marginTop: 16,
+    borderRadius: 999,
+    overflow: 'hidden',
+    minHeight: 58,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  selectSheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 28,
+  },
+  selectBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 17,
+    textAlign: 'center',
+    width: '100%',
+    letterSpacing: 0.2,
+  },
+});
+
+const confirmStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    zIndex: 50,
+  },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    shadowColor: '#1D4ED8',
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 16,
+  },
+  androidGlass: {
+    backgroundColor: 'rgba(239, 246, 255, 0.94)',
+  },
+  blueWash: {
+    backgroundColor: 'rgba(191, 219, 254, 0.32)',
+  },
+  sheetInner: {
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    paddingBottom: 28,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(148, 163, 184, 0.55)',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  kicker: {
+    color: 'rgba(37, 99, 235, 0.7)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  title: {
+    color: '#1E3A8A',
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 20,
+    letterSpacing: 0.2,
+  },
+  techCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(147, 197, 253, 0.5)',
+  },
+  avatarFallback: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(219, 234, 254, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(147, 197, 253, 0.6)',
+  },
+  avatarLetter: {
+    color: '#2563EB',
+    fontWeight: '700',
+    fontSize: 20,
+  },
+  techName: {
+    color: '#0F172A',
+    fontWeight: '700',
+    fontSize: 17,
+  },
+  ratingText: {
+    color: '#64748B',
+    fontSize: 13,
+    marginLeft: 4,
+    fontWeight: '600',
+  },
+  etaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(209, 250, 229, 0.75)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.4)',
+  },
+  etaText: {
+    color: '#059669',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  primaryCta: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    shadowColor: '#1D4ED8',
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  primarySheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 28,
+  },
+  primaryText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 18,
+    letterSpacing: 0.3,
+  },
+  primaryBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: 'rgba(191, 219, 254, 0.7)',
+  },
+  cancelBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
+  },
+  cancelText: {
+    color: '#64748B',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  sheetBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(147, 197, 253, 0.45)',
+    borderBottomWidth: 0,
+  },
+});
 
 export default function TechnicianSelectRoute() {
   return (

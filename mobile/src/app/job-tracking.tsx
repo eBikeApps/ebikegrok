@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, Pressable, Linking, Platform, StyleSheet } from 'react-native';
+import { View, Text, Pressable, Linking, Platform, StyleSheet, Modal } from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
 import { RequireAuth } from '@/components/RequireAuth';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -21,6 +22,7 @@ import { Phone, MessageCircle, X, Check, Clock, Wrench, MapPin, ChevronRight, Se
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 import { useLanguageStore, useActiveJobStore, useLocationStore } from '@/lib/store';
 import { JobStatus } from '@/lib/types';
@@ -34,6 +36,7 @@ import {
 } from '@/lib/active-job-sync';
 import { formatJobReference } from '@/lib/job-reference';
 import { isMockPaymentsEnabled, normalizePaymentUrl } from '@/lib/mock-payments';
+import { firstSearchParam, mapRegionForPoints, pickLatLng, safeHttpUri, toLatLng } from '@/lib/geo';
 import {
   statusSteps,
   calcDistance,
@@ -50,7 +53,10 @@ function JobTrackingScreen() {
   const router = useRouter();
   // Slice 3: Accept both 'id' (preferred) and 'jobId' (from notifs, payment returns, legacy) for robustness.
   const rawParams = useLocalSearchParams<{ id?: string; jobId?: string; paid?: string }>();
-  const params = { id: rawParams.id || rawParams.jobId || '', paid: rawParams.paid };
+  const params = {
+    id: firstSearchParam(rawParams.id) || firstSearchParam(rawParams.jobId),
+    paid: firstSearchParam(rawParams.paid),
+  };
   const insets = useSafeAreaInsets();
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
@@ -63,15 +69,8 @@ function JobTrackingScreen() {
   const updateJobTimestamps = useActiveJobStore((s) => s.updateJobTimestamps);
   const updateJobFinalPrice = useActiveJobStore((s) => s.updateJobFinalPrice);
   const deviceLocation = useLocationStore((s) => s.currentLocation);
-  const jobCustomerLocation =
-    activeJob?.customer_location?.latitude != null &&
-    activeJob?.customer_location?.longitude != null
-      ? {
-          latitude: activeJob.customer_location.latitude,
-          longitude: activeJob.customer_location.longitude,
-        }
-      : null;
-  const mapCustomerLocation = jobCustomerLocation ?? deviceLocation;
+  const jobCustomerLocation = pickLatLng(activeJob?.customer_location);
+  const mapCustomerLocation = jobCustomerLocation ?? pickLatLng(deviceLocation);
 
   const initialEta = (activeJob?.technician as any)?.eta ?? 15;
   const [eta, setEta] = useState<number>(initialEta);
@@ -84,6 +83,18 @@ function JobTrackingScreen() {
   const [paymentStatus, setPaymentStatus] = useState<string>(() => (activeJob as any)?.payment_status ?? 'pending');
   const paymentStatusRef = useRef<string>((activeJob as any)?.payment_status ?? 'pending');
   const [paymentLoading, setPaymentLoading] = useState(false);
+
+  type PendingExtra = {
+    id: string;
+    jobId: string;
+    description: string;
+    amount: number;
+    paymentUrl?: string | null;
+    status: string;
+  };
+  const [pendingExtra, setPendingExtra] = useState<PendingExtra | null>(null);
+  const [extraActionLoading, setExtraActionLoading] = useState(false);
+  const dismissedExtraIds = useRef<Set<string>>(new Set());
 
   // C01 FIX: ref tracks live status so polling logic never reads stale closure
   const statusRef = useRef<JobStatus | undefined>(activeJob?.status);
@@ -133,10 +144,25 @@ function JobTrackingScreen() {
     }
   }, [goHomeAfterCompletion, router]);
 
+  const pollPendingExtras = useCallback(async () => {
+    if (!params.id) return;
+    try {
+      const res = await api.get<{ extras: PendingExtra[] }>(
+        `/api/payments/extra-repair/pending/${params.id}`
+      );
+      if (!isMountedRef.current) return;
+      const next = (res.extras ?? []).find((e) => !dismissedExtraIds.current.has(e.id));
+      setPendingExtra(next ?? null);
+    } catch {
+      // silent — extras are best-effort
+    }
+  }, [params.id]);
+
   const pollJobStatus = useCallback(async () => {
     const liveStatus = statusRef.current;
     if (!params.id || !liveStatus || liveStatus === 'completed' || liveStatus === 'cancelled') return;
     try {
+      await pollPendingExtras();
       const result = await api.get<{ job: any }>(`/api/jobs/${params.id}`);
       if (!isMountedRef.current || !result.job) return;
 
@@ -178,16 +204,16 @@ function JobTrackingScreen() {
         }
       }
 
-      if (dbJob.technician?.currentLocationLat && dbJob.technician?.currentLocationLng) {
-        setTechnicianLocation({
-          latitude: dbJob.technician.currentLocationLat,
-          longitude: dbJob.technician.currentLocationLng,
-        });
-      }
+      const liveTech = toLatLng(
+        dbJob.technician?.currentLocationLat,
+        dbJob.technician?.currentLocationLng
+      );
+      if (liveTech) setTechnicianLocation(liveTech);
     } catch (error) {
-      console.error('Error polling job status:', error);
+      // Soft log — do not use console.error (triggers redbox spam on intermittent 500s)
+      console.warn('[JobTracking] poll failed (will retry):', (error as Error)?.message ?? error);
     }
-  }, [params.id, navigateToCompletionIfNeeded, updateJobStatus, updateJobTimestamps, updateJobFinalPrice, setTechnicianLocation]);
+  }, [params.id, navigateToCompletionIfNeeded, updateJobStatus, updateJobTimestamps, updateJobFinalPrice, setTechnicianLocation, pollPendingExtras]);
 
   // Resolve entry from server — prevents ghost orders after completion / app restart
   useEffect(() => {
@@ -238,7 +264,8 @@ function JobTrackingScreen() {
       return;
     }
     pollJobStatus();
-    const interval = setInterval(pollJobStatus, 2000);
+    // 4s — reduces DB pool pressure (Supabase session limit was causing 500s at 2s)
+    const interval = setInterval(pollJobStatus, 4000);
     return () => clearInterval(interval);
   }, [entryReady, activeJob?.status, activeJob?.id, params.id, pollJobStatus, navigateToCompletionIfNeeded, goHomeAfterCompletion]);
 
@@ -246,20 +273,23 @@ function JobTrackingScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!entryReady || !params.id) return;
+      pollPendingExtras();
       if (statusRef.current === 'accepted' && paymentStatusRef.current !== 'paid') {
         pollJobStatus();
       }
-    }, [entryReady, params.id, pollJobStatus])
+    }, [entryReady, params.id, pollJobStatus, pollPendingExtras])
   );
 
   // Recalculate ETA whenever technician location changes
   useEffect(() => {
-    const techLoc = technicianLocation ?? activeJob?.technician?.current_location;
+    const techLoc =
+      pickLatLng(technicianLocation) ?? pickLatLng(activeJob?.technician?.current_location);
     const custLoc = mapCustomerLocation;
     if (!techLoc || !custLoc) return;
     const dist = calcDistance(techLoc.latitude, techLoc.longitude, custLoc.latitude, custLoc.longitude);
+    if (!Number.isFinite(dist)) return;
     setEta(calcEta(dist));
-  }, [technicianLocation, mapCustomerLocation?.latitude, mapCustomerLocation?.longitude]);
+  }, [technicianLocation, mapCustomerLocation?.latitude, mapCustomerLocation?.longitude, activeJob?.technician?.current_location]);
 
   const handleCall = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -291,7 +321,7 @@ function JobTrackingScreen() {
       params: {
         jobId: activeJob.id,
         otherName: activeJob.technician?.name ?? 'טכנאי',
-        otherAvatar: activeJob.technician?.avatar_url ?? '',
+        otherAvatar: safeHttpUri(activeJob.technician?.avatar_url) ?? '',
       },
     });
   };
@@ -304,6 +334,56 @@ function JobTrackingScreen() {
       setInfoModal({ visible: true, title: isRTL ? 'שגיאה' : 'Error', message: isRTL ? 'לא ניתן לפתוח WhatsApp' : 'Could not open WhatsApp' });
     });
   };
+
+  const handlePayExtra = useCallback(async () => {
+    if (!pendingExtra?.paymentUrl || !params.id) {
+      setInfoModal({
+        visible: true,
+        title: isRTL ? 'שגיאה' : 'Error',
+        message: isRTL ? 'קישור תשלום לא זמין. נסה שוב.' : 'Payment link unavailable. Try again.',
+      });
+      return;
+    }
+    setExtraActionLoading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const paymentUrl = encodeURIComponent(normalizePaymentUrl(pendingExtra.paymentUrl));
+      router.push({
+        pathname: '/payment',
+        params: {
+          jobId: params.id,
+          paymentUrl,
+          amount: String(pendingExtra.amount),
+          description: pendingExtra.description
+            ? `תיקון נוסף: ${pendingExtra.description}`
+            : 'תשלום נוסף על תיקון',
+          extraId: pendingExtra.id,
+        },
+      });
+      // Keep showing until paid; polling clears it
+    } finally {
+      setExtraActionLoading(false);
+    }
+  }, [pendingExtra, params.id, router, isRTL]);
+
+  const handleRejectExtra = useCallback(async () => {
+    if (!pendingExtra) return;
+    setExtraActionLoading(true);
+    try {
+      await api.post(`/api/payments/extra-repair/${pendingExtra.id}/reject`, {});
+      dismissedExtraIds.current.add(pendingExtra.id);
+      setPendingExtra(null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      setInfoModal({
+        visible: true,
+        title: isRTL ? 'שגיאה' : 'Error',
+        message: e?.message || (isRTL ? 'לא ניתן לדחות את הבקשה' : 'Could not reject request'),
+      });
+    } finally {
+      setExtraActionLoading(false);
+    }
+  }, [pendingExtra, isRTL]);
 
   const handlePayNow = useCallback(async () => {
     if (!params.id) return;
@@ -327,7 +407,7 @@ function JobTrackingScreen() {
         return;
       }
       if (result.paymentUrl) {
-        const paymentUrl = normalizePaymentUrl(result.paymentUrl);
+        const paymentUrl = encodeURIComponent(normalizePaymentUrl(result.paymentUrl));
         router.push({
           pathname: '/payment',
           params: {
@@ -520,7 +600,11 @@ function JobTrackingScreen() {
     );
   }
 
-  const techLocation = technicianLocation ?? activeJob.technician_location;
+  const techLocation =
+    pickLatLng(technicianLocation) ??
+    pickLatLng(activeJob.technician_location) ??
+    pickLatLng(activeJob.technician?.current_location);
+  const techAvatar = safeHttpUri(activeJob.technician?.avatar_url);
   const canCancel = paymentStatus !== 'paid';
   const currentIndex = getCurrentStepIndex();
   const showETA = eta > 0 && activeJob.status !== 'arrived' && activeJob.status !== 'in_progress';
@@ -533,23 +617,18 @@ function JobTrackingScreen() {
           <MapView
             style={{ flex: 1 }}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-            initialRegion={{
-              latitude: (mapCustomerLocation.latitude + techLocation.latitude) / 2,
-              longitude: (mapCustomerLocation.longitude + techLocation.longitude) / 2,
-              latitudeDelta: Math.abs(mapCustomerLocation.latitude - techLocation.latitude) * 2 + 0.01,
-              longitudeDelta: Math.abs(mapCustomerLocation.longitude - techLocation.longitude) * 2 + 0.01,
-            }}
-            showsUserLocation={!!deviceLocation}
+            initialRegion={mapRegionForPoints(mapCustomerLocation, techLocation)}
+            showsUserLocation={!!pickLatLng(deviceLocation)}
             showsCompass={false}
           >
             <Marker
-              coordinate={{ latitude: techLocation.latitude, longitude: techLocation.longitude }}
+              coordinate={techLocation}
             >
               <View style={styles.markerContainer}>
                 <View style={styles.markerAvatar}>
-                  {activeJob.technician?.avatar_url ? (
+                  {techAvatar ? (
                     <Image
-                      source={{ uri: activeJob.technician.avatar_url }}
+                      source={{ uri: techAvatar }}
                       style={{ width: 44, height: 44, borderRadius: 22 }}
                     />
                   ) : (
@@ -637,9 +716,9 @@ function JobTrackingScreen() {
         {/* Technician Card */}
         <View style={styles.techCard}>
           <View style={styles.techAvatarWrap}>
-            {activeJob.technician?.avatar_url ? (
+            {techAvatar ? (
               <Image
-                source={{ uri: activeJob.technician.avatar_url }}
+                source={{ uri: techAvatar }}
                 style={styles.techAvatar}
               />
             ) : (
@@ -662,15 +741,17 @@ function JobTrackingScreen() {
           <View style={styles.contactButtons}>
             <Pressable
               onPress={handleChat}
-              style={({ pressed }) => [styles.contactBtn, styles.whatsappBtn, pressed && { opacity: 0.85 }]}
+              style={({ pressed }) => [styles.contactTile, styles.whatsappTile, pressed && { opacity: 0.88 }]}
             >
-              <MessageCircle size={20} color="#fff" />
+              <MessageCircle size={22} color="#fff" />
+              <Text style={styles.contactTileText}>{isRTL ? 'וואטסאפ' : 'Chat'}</Text>
             </Pressable>
             <Pressable
               onPress={handleCall}
-              style={({ pressed }) => [styles.contactBtn, styles.callBtn, pressed && { opacity: 0.85 }]}
+              style={({ pressed }) => [styles.contactTile, styles.callTile, pressed && { opacity: 0.88 }]}
             >
-              <Phone size={20} color="#fff" />
+              <Phone size={22} color="#fff" />
+              <Text style={styles.contactTileText}>{isRTL ? 'שיחה' : 'Call'}</Text>
             </Pressable>
           </View>
         </View>
@@ -748,19 +829,20 @@ function JobTrackingScreen() {
         </View>
 
 
-        {/* Bottom Actions */}
-        <View style={[styles.actions, { paddingBottom: insets.bottom + 12 }]}>
+        {/* Bottom Actions — large glass tiles */}
+        <View style={[styles.actions, { paddingBottom: insets.bottom + 14 }]}>
           {activeJob.status === 'arrived' ? (
             <Pressable
               onPress={handleConfirmArrival}
               disabled={isConfirming}
               style={({ pressed }) => [
-                styles.actionBtn,
-                { backgroundColor: '#16A34A', flex: 1, opacity: isConfirming || pressed ? 0.75 : 1 },
+                styles.glassTile,
+                styles.glassTileGreen,
+                { flex: 1, opacity: isConfirming || pressed ? 0.8 : 1 },
               ]}
             >
-              <Check size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15, marginLeft: 6 }}>
+              <Check size={26} color="#fff" strokeWidth={2.8} />
+              <Text style={styles.glassTileTextLight}>
                 {isRTL ? 'אשר הגעת טכנאי' : 'Confirm Arrival'}
               </Text>
             </Pressable>
@@ -768,19 +850,31 @@ function JobTrackingScreen() {
             <>
               <Pressable
                 onPress={handleContactSupport}
-                style={({ pressed }) => [styles.actionBtn, styles.supportBtn, pressed && { opacity: 0.85 }]}
+                style={({ pressed }) => [
+                  styles.glassTile,
+                  styles.glassTileSupport,
+                  pressed && { opacity: 0.88 },
+                ]}
               >
-                <MessageCircle size={18} color="#475569" />
-                <Text style={styles.supportBtnText}>{t('contactSupport')}</Text>
+                <MessageCircle size={24} color="#1D4ED8" strokeWidth={2.4} />
+                <Text style={styles.glassTileTextBlue} numberOfLines={2}>
+                  {t('contactSupport')}
+                </Text>
               </Pressable>
 
               {canCancel && (
                 <Pressable
                   onPress={handleCancel}
-                  style={({ pressed }) => [styles.actionBtn, styles.cancelBtn, pressed && { opacity: 0.85 }]}
+                  style={({ pressed }) => [
+                    styles.glassTile,
+                    styles.glassTileCancel,
+                    pressed && { opacity: 0.88 },
+                  ]}
                 >
-                  <X size={18} color="#EF4444" />
-                  <Text style={styles.cancelBtnText}>{t('cancelOrder')}</Text>
+                  <X size={24} color="#DC2626" strokeWidth={2.6} />
+                  <Text style={styles.glassTileTextRed} numberOfLines={2}>
+                    {t('cancelOrder')}
+                  </Text>
                 </Pressable>
               )}
             </>
@@ -789,14 +883,227 @@ function JobTrackingScreen() {
       </Animated.View>
 
       {cancelModals}
+
+      {/* Extra repair approval + payment */}
+      <Modal
+        visible={!!pendingExtra}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={extraStyles.overlay}>
+          <View style={extraStyles.card}>
+            {Platform.OS === 'ios' ? (
+              <BlurView intensity={48} tint="light" style={StyleSheet.absoluteFill} />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, extraStyles.androidGlass]} />
+            )}
+            <View style={[StyleSheet.absoluteFill, extraStyles.blueWash]} />
+            <View style={extraStyles.inner}>
+              <Text style={extraStyles.kicker}>
+                {isRTL ? 'בקשה מהטכנאי' : 'Technician request'}
+              </Text>
+              <Text style={extraStyles.title}>
+                {isRTL ? 'אישור תיקון נוסף' : 'Approve extra repair'}
+              </Text>
+              <Text style={extraStyles.message}>
+                {isRTL
+                  ? 'הטכנאי מבקש תשלום נוסף עבור תיקון נוסף. אפשר לאשר ולשלם, או לדחות.'
+                  : 'The technician requested an extra paid repair. Approve and pay, or decline.'}
+              </Text>
+
+              <View style={extraStyles.detailBox}>
+                <Text style={extraStyles.detailLabel}>
+                  {isRTL ? 'תיאור' : 'Description'}
+                </Text>
+                <Text style={extraStyles.detailValue}>
+                  {pendingExtra?.description ?? '—'}
+                </Text>
+                <View style={extraStyles.detailDivider} />
+                <Text style={extraStyles.detailLabel}>
+                  {isRTL ? 'סכום לתשלום' : 'Amount'}
+                </Text>
+                <Text style={extraStyles.amount}>₪{pendingExtra?.amount ?? 0}</Text>
+              </View>
+
+              <Pressable
+                onPress={handlePayExtra}
+                disabled={extraActionLoading}
+                style={({ pressed }) => [
+                  extraStyles.payBtn,
+                  (extraActionLoading || pressed) && { opacity: 0.88 },
+                ]}
+              >
+                <LinearGradient
+                  colors={[
+                    'rgba(96,165,250,0.95)',
+                    'rgba(37,99,235,0.98)',
+                    'rgba(29,78,216,1)',
+                  ]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <Text style={extraStyles.payBtnText}>
+                  {extraActionLoading
+                    ? isRTL
+                      ? 'טוען…'
+                      : 'Loading…'
+                    : isRTL
+                      ? 'אשר ושלם עכשיו'
+                      : 'Approve & pay'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleRejectExtra}
+                disabled={extraActionLoading}
+                style={({ pressed }) => [
+                  extraStyles.rejectBtn,
+                  (extraActionLoading || pressed) && { opacity: 0.85 },
+                ]}
+              >
+                <Text style={extraStyles.rejectText}>
+                  {isRTL ? 'דחה בקשה' : 'Decline'}
+                </Text>
+              </Pressable>
+            </View>
+            <View style={extraStyles.border} pointerEvents="none" />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
+const extraStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 26,
+    overflow: 'hidden',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.25,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 14,
+  },
+  androidGlass: {
+    backgroundColor: 'rgba(239, 246, 255, 0.96)',
+  },
+  blueWash: {
+    backgroundColor: 'rgba(191, 219, 254, 0.4)',
+  },
+  inner: {
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 20,
+  },
+  kicker: {
+    color: 'rgba(37, 99, 235, 0.75)',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  title: {
+    color: '#1E3A8A',
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  message: {
+    color: '#1E40AF',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 18,
+  },
+  detailBox: {
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.5)',
+  },
+  detailLabel: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'right',
+    marginBottom: 4,
+  },
+  detailValue: {
+    color: '#0F172A',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'right',
+    lineHeight: 22,
+  },
+  detailDivider: {
+    height: 1,
+    backgroundColor: 'rgba(147,197,253,0.4)',
+    marginVertical: 12,
+  },
+  amount: {
+    color: '#2563EB',
+    fontSize: 28,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  payBtn: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  payBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 17,
+  },
+  rejectBtn: {
+    borderRadius: 16,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.4)',
+  },
+  rejectText: {
+    color: '#64748B',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  border: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    borderColor: 'rgba(147,197,253,0.55)',
+  },
+});
+
 export default function JobTrackingRoute() {
   return (
     <RequireAuth>
-      <JobTrackingScreen />
+      <ErrorBoundary>
+        <JobTrackingScreen />
+      </ErrorBoundary>
     </RequireAuth>
   );
 }
@@ -944,25 +1251,34 @@ const styles = StyleSheet.create({
   },
   contactButtons: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
-  contactBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  contactTile: {
+    width: 64,
+    minHeight: 64,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  whatsappBtn: {
+  whatsappTile: {
     backgroundColor: '#25D366',
   },
-  callBtn: {
+  callTile: {
     backgroundColor: '#3B82F6',
+  },
+  contactTileText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
   },
 
   // Divider
@@ -1062,41 +1378,71 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Actions
+  // Actions — large glass tiles
   actions: {
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingTop: 10,
-    gap: 10,
+    paddingTop: 12,
+    gap: 12,
   },
-  actionBtn: {
+  glassTile: {
     flex: 1,
-    flexDirection: 'row',
+    minHeight: 88,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 16,
     gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 10,
+    borderWidth: 1.5,
+    overflow: 'hidden',
   },
-  supportBtn: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+  glassTileSupport: {
+    backgroundColor: 'rgba(219, 234, 254, 0.85)',
+    borderColor: 'rgba(147, 197, 253, 0.7)',
+    shadowColor: '#3B82F6',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  supportBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#475569',
+  glassTileCancel: {
+    backgroundColor: 'rgba(254, 226, 226, 0.9)',
+    borderColor: 'rgba(252, 165, 165, 0.75)',
+    shadowColor: '#EF4444',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  cancelBtn: {
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
+  glassTileGreen: {
+    backgroundColor: '#16A34A',
+    borderColor: 'rgba(134, 239, 172, 0.5)',
+    shadowColor: '#16A34A',
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
-  cancelBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#EF4444',
+  glassTileTextBlue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1D4ED8',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  glassTileTextRed: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#DC2626',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  glassTileTextLight: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fff',
+    textAlign: 'center',
   },
   timestampBadge: {
     flexDirection: 'row',

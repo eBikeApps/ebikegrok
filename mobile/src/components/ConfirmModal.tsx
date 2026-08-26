@@ -7,7 +7,10 @@ import {
   ActivityIndicator,
   StyleSheet,
   I18nManager,
+  Platform,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface ConfirmModalProps {
   visible: boolean;
@@ -39,6 +42,12 @@ export default function ConfirmModal({
 }: ConfirmModalProps) {
   const showCancel = !alertOnly;
 
+  // Split multi-line messages into spaced rows for readability
+  const messageLines = (message ?? '')
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.overlay}>
@@ -50,53 +59,104 @@ export default function ConfirmModal({
         />
 
         <View style={styles.card} pointerEvents="box-none">
-          <View
-            style={[
-              styles.iconCircle,
-              destructive ? styles.iconCircleDestructive : styles.iconCircleDefault,
-            ]}
-          >
-            <Text style={styles.iconEmoji}>{destructive ? '⚠️' : 'ℹ️'}</Text>
-          </View>
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={48} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, styles.androidGlass]} />
+          )}
+          <View style={[StyleSheet.absoluteFill, styles.blueWash]} />
 
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>{message}</Text>
-
-          <Pressable
-            onPress={onConfirm}
-            disabled={loading}
-            accessibilityRole="button"
-            accessibilityLabel={confirmText}
-            style={({ pressed }) => pressed && styles.buttonPressed}
-          >
+          <View style={styles.cardInner}>
             <View
               style={[
+                styles.iconCircle,
+                destructive ? styles.iconCircleDestructive : styles.iconCircleDefault,
+              ]}
+            >
+              <Text style={styles.iconEmoji}>{destructive ? '⚠️' : 'ℹ️'}</Text>
+            </View>
+
+            <Text style={styles.title}>{title}</Text>
+
+            <View style={styles.messageBlock}>
+              {messageLines.length > 0 ? (
+                messageLines.map((line, i) => (
+                  <Text key={`${i}-${line.slice(0, 12)}`} style={styles.messageLine}>
+                    {line}
+                  </Text>
+                ))
+              ) : (
+                <Text style={styles.messageLine}>{message}</Text>
+              )}
+            </View>
+
+            <Pressable
+              onPress={onConfirm}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel={confirmText}
+              style={({ pressed }) => [
                 styles.confirmButton,
                 destructive ? styles.confirmDestructive : styles.confirmPrimary,
                 loading && styles.buttonDisabled,
+                pressed && styles.buttonPressed,
               ]}
             >
+              {!destructive && (
+                <LinearGradient
+                  colors={[
+                    'rgba(96,165,250,0.95)',
+                    'rgba(37,99,235,0.98)',
+                    'rgba(29,78,216,1)',
+                  ]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
+              {destructive && (
+                <LinearGradient
+                  colors={['rgba(248,113,113,0.95)', 'rgba(220,38,38,1)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
+              <LinearGradient
+                colors={['rgba(255,255,255,0.35)', 'transparent']}
+                style={styles.btnSheen}
+              />
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.confirmText}>{confirmText}</Text>
               )}
-            </View>
-          </Pressable>
-
-          {showCancel ? (
-            <Pressable
-              onPress={onCancel}
-              disabled={loading}
-              accessibilityRole="button"
-              accessibilityLabel={cancelText}
-              style={({ pressed }) => pressed && styles.buttonPressed}
-            >
-              <View style={[styles.cancelButton, loading && styles.buttonDisabled]}>
-                <Text style={styles.cancelText}>{cancelText}</Text>
-              </View>
+              <View style={styles.confirmBorder} pointerEvents="none" />
             </Pressable>
-          ) : null}
+
+            {showCancel ? (
+              <Pressable
+                onPress={onCancel}
+                disabled={loading}
+                accessibilityRole="button"
+                accessibilityLabel={cancelText}
+                style={({ pressed }) => [
+                  styles.cancelButton,
+                  loading && styles.buttonDisabled,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                {Platform.OS === 'ios' ? (
+                  <BlurView intensity={20} tint="light" style={StyleSheet.absoluteFill} />
+                ) : null}
+                <View style={[StyleSheet.absoluteFill, styles.cancelWash]} />
+                <Text style={styles.cancelText}>{cancelText}</Text>
+                <View style={styles.cancelBorder} pointerEvents="none" />
+              </Pressable>
+            ) : null}
+          </View>
+
+          <View style={styles.cardBorder} pointerEvents="none" />
         </View>
       </View>
     </Modal>
@@ -112,99 +172,147 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
   },
   card: {
     width: '100%',
     maxWidth: 340,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 20,
+    borderRadius: 26,
+    overflow: 'hidden',
     zIndex: 2,
-    elevation: 12,
-    shadowColor: '#000000',
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    elevation: 16,
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+  },
+  androidGlass: {
+    backgroundColor: 'rgba(239, 246, 255, 0.94)',
+  },
+  blueWash: {
+    backgroundColor: 'rgba(191, 219, 254, 0.38)',
+  },
+  cardInner: {
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 22,
+  },
+  cardBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    borderColor: 'rgba(147, 197, 253, 0.55)',
   },
   iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginBottom: 16,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.65)',
   },
   iconCircleDefault: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: 'rgba(219, 234, 254, 0.75)',
   },
   iconCircleDestructive: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: 'rgba(254, 226, 226, 0.85)',
   },
   iconEmoji: {
-    fontSize: 24,
+    fontSize: 26,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1E3A8A',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 16,
+    letterSpacing: 0.2,
     writingDirection: I18nManager.isRTL ? 'rtl' : 'ltr',
   },
-  message: {
-    fontSize: 14,
-    color: '#6B7280',
+  messageBlock: {
+    marginBottom: 26,
+    gap: 10,
+    paddingHorizontal: 4,
+  },
+  messageLine: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E40AF',
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
+    lineHeight: 24,
     writingDirection: I18nManager.isRTL ? 'rtl' : 'ltr',
   },
   confirmButton: {
     width: '100%',
-    minHeight: 50,
-    borderRadius: 14,
+    minHeight: 54,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    marginBottom: 10,
+    marginBottom: 12,
     overflow: 'hidden',
+    shadowColor: '#1D4ED8',
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
   confirmPrimary: {
-    backgroundColor: '#2563EB',
+    backgroundColor: 'transparent',
   },
   confirmDestructive: {
-    backgroundColor: '#DC2626',
+    backgroundColor: 'transparent',
+  },
+  btnSheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 26,
   },
   confirmText: {
     color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 17,
+    textAlign: 'center',
+    includeFontPadding: false,
+    letterSpacing: 0.2,
+  },
+  confirmBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: 'rgba(191, 219, 254, 0.65)',
+  },
+  cancelButton: {
+    width: '100%',
+    minHeight: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    overflow: 'hidden',
+  },
+  cancelWash: {
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+  },
+  cancelText: {
+    color: '#334155',
     fontWeight: '700',
     fontSize: 16,
     textAlign: 'center',
     includeFontPadding: false,
   },
-  cancelButton: {
-    width: '100%',
-    minHeight: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#F3F4F6',
+  cancelBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-  },
-  cancelText: {
-    color: '#374151',
-    fontWeight: '600',
-    fontSize: 15,
-    textAlign: 'center',
-    includeFontPadding: false,
+    borderColor: 'rgba(147, 197, 253, 0.45)',
   },
   buttonPressed: {
     opacity: 0.88,

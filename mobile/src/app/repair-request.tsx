@@ -1,5 +1,16 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { View, Text, Pressable, TextInput, ScrollView, I18nManager, Modal, FlatList } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  TextInput,
+  ScrollView,
+  I18nManager,
+  Modal,
+  FlatList,
+  StyleSheet,
+  Platform,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ConfirmModal from '@/components/ConfirmModal';
 import { RequireAuth } from '@/components/RequireAuth';
@@ -7,6 +18,7 @@ import { WizardProgress } from '@/components/WizardProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import {
   ChevronLeft,
@@ -64,7 +76,6 @@ import {
 } from '@/lib/repair-customer-defaults';
 import { BikeType, RepairCategory, REPAIR_CATEGORIES, PRICE_RANGES } from '@/lib/types';
 import { cn } from '@/lib/cn';
-import { gradients } from '@/lib/brand-colors';
 
 const TOTAL_STEPS = 4;
 const DRAFT_KEY = 'repair_request_draft';
@@ -625,10 +636,8 @@ function RepairRequestScreen() {
       exiting={FadeOut.duration(200)}
       className="flex-1 px-6"
     >
-      <Text className="text-xl font-bold text-gray-900 text-center mb-2">
-        {t('uploadPhoto')}
-      </Text>
-      <Text className="text-gray-500 text-center mb-6">
+      <Text style={rrStyles.stepTitle}>{t('uploadPhoto')}</Text>
+      <Text style={rrStyles.stepSub}>
         {language === 'he'
           ? 'צלם או העלה תמונה של התקלה (אופציונלי) — או דלג והמשך'
           : 'Take or upload a photo (optional) — or skip and continue'}
@@ -639,7 +648,7 @@ function RepairRequestScreen() {
           <View className="relative">
             <Image
               source={{ uri: photoUri }}
-              style={{ width: 280, height: 280, borderRadius: 16 }}
+              style={{ width: 280, height: 280, borderRadius: 20 }}
             />
             <Pressable
               onPress={handleRemovePhoto}
@@ -651,22 +660,22 @@ function RepairRequestScreen() {
         </View>
       ) : (
         <View className="gap-4">
-          <Pressable
-            onPress={handleTakePhoto}
-            className="bg-blue-50 border-2 border-dashed border-blue-300 rounded-2xl py-12 items-center"
-          >
-            <Camera size={48} color="#3B82F6" />
-            <Text className="mt-3 text-blue-600 font-semibold text-lg">
-              {t('takePhoto')}
-            </Text>
+          <Pressable onPress={handleTakePhoto} style={rrStyles.glassAction}>
+            {Platform.OS === 'ios' && (
+              <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
+            )}
+            <View style={[StyleSheet.absoluteFill, rrStyles.glassActionWash]} />
+            <Camera size={44} color="#2563EB" />
+            <Text style={rrStyles.glassActionLabel}>{t('takePhoto')}</Text>
           </Pressable>
 
-          <Pressable
-            onPress={handleChoosePhoto}
-            className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-2xl py-8 items-center"
-          >
-            <ImageIcon size={32} color="#6B7280" />
-            <Text className="mt-2 text-gray-600 font-medium">
+          <Pressable onPress={handleChoosePhoto} style={[rrStyles.glassAction, rrStyles.glassActionSecondary]}>
+            {Platform.OS === 'ios' && (
+              <BlurView intensity={24} tint="light" style={StyleSheet.absoluteFill} />
+            )}
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.4)' }]} />
+            <ImageIcon size={32} color="#3B82F6" />
+            <Text style={[rrStyles.glassActionLabel, { fontSize: 16, marginTop: 8 }]}>
               {t('chooseFromGallery')}
             </Text>
           </Pressable>
@@ -681,12 +690,9 @@ function RepairRequestScreen() {
       exiting={FadeOut.duration(200)}
       className="flex-1 px-6"
     >
-      <Text className="text-xl font-bold text-gray-900 text-center mb-2">
-        {t('bikeDetails')}
-      </Text>
+      <Text style={rrStyles.stepTitle}>{t('bikeDetails')}</Text>
 
-      {/* Bike Type Selection */}
-      <Text className="text-gray-700 font-semibold mt-4 mb-3">{t('bikeType')}</Text>
+      <Text style={rrStyles.sectionLabel}>{t('bikeType')}</Text>
       <View className="flex-row gap-3">
         {[
           { key: 'regular' as BikeType, icon: Bike, label: t('regularBike') },
@@ -702,20 +708,14 @@ function RepairRequestScreen() {
                 Haptics.selectionAsync();
                 setBikeType(type.key);
               }}
-              className={cn(
-                'flex-1 py-4 px-3 rounded-2xl border-2 items-center',
-                isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'
-              )}
+              style={[rrStyles.glassChip, isSelected && rrStyles.glassChipSelected]}
             >
-              <IconComponent
-                size={32}
-                color={isSelected ? '#3B82F6' : '#6B7280'}
-              />
+              <IconComponent size={32} color={isSelected ? '#1D4ED8' : '#64748B'} />
               <Text
-                className={cn(
-                  'mt-2 font-semibold',
-                  isSelected ? 'text-blue-600' : 'text-gray-600'
-                )}
+                style={[
+                  rrStyles.glassChipText,
+                  isSelected && rrStyles.glassChipTextSelected,
+                ]}
               >
                 {type.label}
               </Text>
@@ -724,11 +724,8 @@ function RepairRequestScreen() {
         })}
       </View>
 
-      {/* Category Multi-Selection */}
-      <Text className="text-gray-700 font-semibold mt-6 mb-1">
-        {t('repairCategory')}
-      </Text>
-      <Text className="text-gray-400 text-sm mb-3">
+      <Text style={[rrStyles.sectionLabel, { marginTop: 22 }]}>{t('repairCategory')}</Text>
+      <Text style={rrStyles.sectionHint}>
         {language === 'he' ? 'ניתן לבחור מספר אפשרויות' : 'You can select multiple options'}
       </Text>
       <ScrollView
@@ -747,24 +744,21 @@ function RepairRequestScreen() {
                 Haptics.selectionAsync();
                 toggleCategory(cat.key);
               }}
-              className={cn(
-                'flex-row items-center py-4 px-4 rounded-xl mb-2 border-2',
-                isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-100 bg-white'
-              )}
+              style={[rrStyles.glassRow, isSelected && rrStyles.glassRowSelected]}
             >
               <View
-                className={cn(
-                  'w-6 h-6 rounded-md border-2 items-center justify-center mr-3',
-                  isSelected ? 'border-blue-500 bg-blue-500' : 'border-gray-300'
-                )}
+                style={[
+                  rrStyles.checkBox,
+                  isSelected && rrStyles.checkBoxSelected,
+                ]}
               >
                 {isSelected && <Check size={14} color="#fff" />}
               </View>
               <Text
-                className={cn(
-                  'font-medium flex-1',
-                  isSelected ? 'text-blue-600' : 'text-gray-700'
-                )}
+                style={[
+                  rrStyles.glassRowText,
+                  isSelected && rrStyles.glassRowTextSelected,
+                ]}
               >
                 {label}
               </Text>
@@ -784,17 +778,15 @@ function RepairRequestScreen() {
         exiting={FadeOut.duration(200)}
         className="flex-1 px-6"
       >
-        <Text className="text-xl font-bold text-gray-900 text-center mb-2">
-          {t('priceEstimate')}
-        </Text>
-        <Text className="text-gray-500 text-center mb-8">
+        <Text style={rrStyles.stepTitle}>{t('priceEstimate')}</Text>
+        <Text style={[rrStyles.stepSub, { marginBottom: 24 }]}>
           {language === 'he'
             ? 'לפניך הערכת מחיר לפי סוג התקלה'
             : 'Here is an estimated price based on the issue type'}
         </Text>
 
         {/* Summary Card */}
-        <View className="bg-white rounded-2xl p-6 shadow-lg shadow-black/5 border border-gray-100">
+        <View style={rrStyles.glassCard}>
           {/* Photo Preview */}
           {photoUri && (
             <View className="items-center mb-4">
@@ -864,12 +856,8 @@ function RepairRequestScreen() {
       exiting={FadeOut.duration(200)}
       className="flex-1 px-6"
     >
-      <Text className="text-xl font-bold text-gray-900 text-center mb-2">
-        {t('customerDetails')}
-      </Text>
-      <Text className="text-gray-500 text-center mb-6">
-        {t('customerDetailsDesc')}
-      </Text>
+      <Text style={rrStyles.stepTitle}>{t('customerDetails')}</Text>
+      <Text style={rrStyles.stepSub}>{t('customerDetailsDesc')}</Text>
 
       <View className="mb-5">
         <Text className="text-gray-700 font-semibold mb-2 text-right">{t('problemDescription')}</Text>
@@ -1123,30 +1111,39 @@ function RepairRequestScreen() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-100">
-        <Pressable
-          onPress={handleBack}
-          className="w-10 h-10 items-center justify-center"
-        >
-          <BackIcon size={24} color="#374151" />
-        </Pressable>
-        <Text className="text-lg font-bold text-gray-900">{t('reportIssue')}</Text>
-        <View className="w-10" />
+    <SafeAreaView style={rrStyles.screen} edges={['top', 'bottom']}>
+      {/* Glass header — home-screen language */}
+      <View style={rrStyles.headerWrap}>
+        <View style={rrStyles.headerCard}>
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(239,246,255,0.9)' }]} />
+          )}
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(191,219,254,0.28)' }]} />
+          <View style={rrStyles.headerInner}>
+            <Pressable onPress={handleBack} style={rrStyles.backBtn} hitSlop={8}>
+              <BackIcon size={22} color="#1E40AF" />
+            </Pressable>
+            <View style={rrStyles.titleBlock}>
+              <Text style={rrStyles.pageKicker}>
+                {language === 'he' ? 'הזמנת שירות' : 'Service request'}
+              </Text>
+              <Text style={rrStyles.pageTitle}>{t('reportIssue')}</Text>
+            </View>
+            <View style={{ width: 40 }} />
+          </View>
+          <View style={rrStyles.headerBorder} pointerEvents="none" />
+        </View>
       </View>
 
-      <WizardProgress
-        current={currentStep}
-        total={TOTAL_STEPS}
-        label={`${t('step')} ${currentStep} ${t('of')} ${TOTAL_STEPS}`}
-      />
+      <WizardProgress current={currentStep} total={TOTAL_STEPS} />
 
-      {/* Step Content */}
       <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ flexGrow: 1 }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 8 }}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         {currentStep === 1 && renderStep1()}
         {currentStep === 2 && renderStep2()}
@@ -1154,11 +1151,11 @@ function RepairRequestScreen() {
         {currentStep === 4 && renderStep4()}
       </ScrollView>
 
-      {/* Bottom Button */}
-      <View className="px-6 pb-6 pt-4">
+      {/* Bottom glass actions */}
+      <View style={rrStyles.footer}>
         {currentStep === 1 && (
-          <Pressable onPress={handleSkipPhoto} className="mb-3 py-3 items-center">
-            <Text className="text-gray-500 font-semibold text-base">{t('skipPhoto')}</Text>
+          <Pressable onPress={handleSkipPhoto} style={rrStyles.skipBtn}>
+            <Text style={rrStyles.skipText}>{t('skipPhoto')}</Text>
           </Pressable>
         )}
         {currentStep === 3 && defaultsSavedBanner && (
@@ -1170,17 +1167,19 @@ function RepairRequestScreen() {
           <Pressable
             onPress={handleSaveDefaults}
             disabled={savingDefaults || geocodingAddress}
-            className={cn(
-              'flex-row items-center justify-center gap-2 py-3.5 rounded-xl border-2 border-blue-200 bg-blue-50 mb-3',
-              (savingDefaults || geocodingAddress) && 'opacity-50'
-            )}
+            style={[
+              rrStyles.secondaryCta,
+              (savingDefaults || geocodingAddress) && { opacity: 0.5 },
+            ]}
           >
             {savingDefaults ? (
-              <Text className="text-blue-700 font-semibold text-base">{language === 'he' ? 'שומר…' : 'Saving…'}</Text>
+              <Text style={rrStyles.secondaryCtaText}>
+                {language === 'he' ? 'שומר…' : 'Saving…'}
+              </Text>
             ) : (
               <>
-                <Bookmark size={18} color="#2563EB" />
-                <Text className="text-blue-700 font-semibold text-base">{t('saveDetailsForNextTime')}</Text>
+                <Bookmark size={18} color="#1D4ED8" />
+                <Text style={rrStyles.secondaryCtaText}>{t('saveDetailsForNextTime')}</Text>
               </>
             )}
           </Pressable>
@@ -1188,22 +1187,40 @@ function RepairRequestScreen() {
         <Pressable
           onPress={handleNext}
           disabled={!canProceed() || geocodingAddress}
-          className={cn('rounded-2xl overflow-hidden', (!canProceed() || geocodingAddress) && 'opacity-50')}
+          style={[
+            rrStyles.primaryCta,
+            (!canProceed() || geocodingAddress) && { opacity: 0.48 },
+          ]}
         >
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(59,130,246,0.35)' }]} />
+          )}
           <LinearGradient
-            colors={[...gradients.primary]}
+            colors={[
+              'rgba(96,165,250,0.9)',
+              'rgba(37,99,235,0.95)',
+              'rgba(29,78,216,0.98)',
+            ]}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={{ paddingVertical: 16, alignItems: 'center' }}
-          >
-            <Text className="text-white font-bold text-lg">
-              {geocodingAddress
-                ? (language === 'he' ? 'מאתר כתובת…' : 'Finding address…')
-                : currentStep === TOTAL_STEPS
-                  ? t('findTechnician')
-                  : t('next')}
-            </Text>
-          </LinearGradient>
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={['rgba(255,255,255,0.45)', 'transparent']}
+            style={rrStyles.primarySheen}
+          />
+          <Text style={rrStyles.primaryCtaText}>
+            {geocodingAddress
+              ? language === 'he'
+                ? 'מאתר כתובת…'
+                : 'Finding address…'
+              : currentStep === TOTAL_STEPS
+                ? t('findTechnician')
+                : t('next')}
+          </Text>
+          <View style={rrStyles.primaryBorder} pointerEvents="none" />
         </Pressable>
       </View>
 
@@ -1412,6 +1429,274 @@ function RepairRequestScreen() {
     </SafeAreaView>
   );
 }
+
+const rrStyles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#EBF4FF',
+  },
+  headerWrap: {
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 4,
+  },
+  headerCard: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  headerInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.5)',
+  },
+  titleBlock: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  pageKicker: {
+    color: 'rgba(37,99,235,0.7)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  pageTitle: {
+    color: '#1E3A8A',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  headerBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.5)',
+  },
+  stepTitle: {
+    color: '#0F172A',
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: 0.2,
+  },
+  stepSub: {
+    color: '#64748B',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 22,
+    lineHeight: 20,
+    paddingHorizontal: 8,
+  },
+  sectionLabel: {
+    color: '#1E40AF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 10,
+  },
+  sectionHint: {
+    color: '#94A3B8',
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  glassAction: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(219,234,254,0.55)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(147,197,253,0.55)',
+    shadowColor: '#3B82F6',
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  glassActionSecondary: {
+    paddingVertical: 28,
+    backgroundColor: 'rgba(255,255,255,0.5)',
+  },
+  glassActionWash: {
+    backgroundColor: 'rgba(147,197,253,0.22)',
+  },
+  glassActionLabel: {
+    marginTop: 12,
+    color: '#1D4ED8',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  glassChip: {
+    flex: 1,
+    paddingVertical: 18,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(203,213,225,0.8)',
+  },
+  glassChipSelected: {
+    backgroundColor: 'rgba(191,219,254,0.65)',
+    borderColor: 'rgba(59,130,246,0.75)',
+    shadowColor: '#3B82F6',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  glassChipText: {
+    marginTop: 8,
+    fontWeight: '700',
+    color: '#64748B',
+    fontSize: 14,
+  },
+  glassChipTextSelected: {
+    color: '#1D4ED8',
+  },
+  glassRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(226,232,240,0.95)',
+  },
+  glassRowSelected: {
+    backgroundColor: 'rgba(219,234,254,0.75)',
+    borderColor: 'rgba(59,130,246,0.7)',
+  },
+  glassRowText: {
+    flex: 1,
+    fontWeight: '600',
+    color: '#334155',
+    fontSize: 15,
+  },
+  glassRowTextSelected: {
+    color: '#1D4ED8',
+  },
+  checkBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+  },
+  checkBoxSelected: {
+    borderColor: '#3B82F6',
+    backgroundColor: '#3B82F6',
+  },
+  glassCard: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderRadius: 22,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(147,197,253,0.4)',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  footer: {
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 10,
+    backgroundColor: 'rgba(235,244,255,0.92)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(147,197,253,0.25)',
+  },
+  skipBtn: {
+    alignSelf: 'center',
+    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.35)',
+  },
+  skipText: {
+    color: '#64748B',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  secondaryCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 18,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(147,197,253,0.55)',
+  },
+  secondaryCtaText: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  primaryCta: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    minHeight: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#1D4ED8',
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  primarySheen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 28,
+  },
+  primaryCtaText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 18,
+    letterSpacing: 0.3,
+    textShadowColor: 'rgba(15,23,42,0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  primaryBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(191,219,254,0.7)',
+  },
+});
 
 export default function RepairRequestRoute() {
   return (

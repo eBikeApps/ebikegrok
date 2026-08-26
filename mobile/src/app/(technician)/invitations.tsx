@@ -166,7 +166,7 @@ export default function InvitationsScreen() {
                         <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{inv.inviter.name}</Text>
                         <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>מזמין אותך לשיתוף עבודה</Text>
                         {inv.inviter.rating && (
-                          <Text style={{ color: '#F59E0B', fontSize: 12, marginTop: 2 }}>⭐ {inv.inviter.rating.toFixed(1)}</Text>
+                          <Text style={{ color: '#F59E0B', fontSize: 12, marginTop: 2 }}>⭐ {(inv.inviter.rating ?? 0).toFixed(1)}</Text>
                         )}
                       </View>
                     </View>

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>תמיכה — eBike</title>
+  <meta name="description" content="יצירת קשר עם תמיכת אפליקציית eBike" />
+  <style>
+    :root {
+      --bg: #f4f7f5;
+      --card: #ffffff;
+      --ink: #14201b;
+      --muted: #4b5c54;
+      --line: #d7e3dc;
+      --green: #059669;
+      --green-dark: #064e3b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Heebo", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.7;
+    }
+    header {
+      background: linear-gradient(160deg, #052e16 0%, #14532d 55%, #166534 100%);
+      color: #fff;
+      padding: 48px 20px 40px;
+    }
+    header .wrap, main, footer .wrap { max-width: 640px; margin: 0 auto; }
+    header p { margin: 8px 0 0; opacity: 0.85; }
+    h1 { margin: 0; font-size: 2rem; letter-spacing: -0.02em; }
+    main { padding: 32px 20px 64px; }
+    article {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 32px 24px 36px;
+      box-shadow: 0 10px 30px rgba(6, 78, 59, 0.06);
+      text-align: center;
+    }
+    .intro {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin: 0 0 28px;
+    }
+    .mail {
+      display: block;
+      text-decoration: none;
+      background: linear-gradient(160deg, #ecfdf5 0%, #fff 70%);
+      border: 1.5px solid #bbf7d0;
+      border-radius: 20px;
+      padding: 28px 20px;
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .mail:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 28px rgba(5, 150, 105, 0.12);
+    }
+    .mail .icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 14px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      font-size: 30px;
+      line-height: 64px;
+    }
+    .mail .label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--green-dark);
+      margin-bottom: 6px;
+    }
+    .mail .addr {
+      display: block;
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: var(--green);
+      direction: ltr;
+      word-break: break-all;
+    }
+    .hint {
+      margin: 22px 0 0;
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .en {
+      direction: ltr;
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 28px;
+      border-top: 1px solid var(--line);
+    }
+    .en h2 {
+      margin: 0 0 10px;
+      font-size: 1.25rem;
+      color: var(--green-dark);
+    }
+    footer {
+      border-top: 1px solid var(--line);
+      padding: 20px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+    }
+    a { color: var(--green); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>תמיכה</h1>
+      <p>אפליקציית eBike · eBike Land</p>
+    </div>
+  </header>
+  <main>
+    <article>
+      <p class="intro">נשמח לעזור. אפשר לפנות אלינו במייל — נחזור בהקדם.</p>
+      <a class="mail" href="mailto:ebikelandservice@gmail.com">
+        <div class="icon">✉</div>
+        <span class="label">אימייל לתמיכה</span>
+        <span class="addr">ebikelandservice@gmail.com</span>
+      </a>
+      <p class="hint">כדאי לציין מספר הזמנה (אם יש) ומה קרה.</p>
+
+      <section class="en" lang="en">
+        <h2>Support</h2>
+        <p class="intro">We’re here to help. Email us and we’ll get back to you.</p>
+        <a class="mail" href="mailto:ebikelandservice@gmail.com">
+          <div class="icon">✉</div>
+          <span class="label">Support email</span>
+          <span class="addr">ebikelandservice@gmail.com</span>
+        </a>
+        <p class="hint">Please include your job number (if you have one) and a short description.</p>
+      </section>
+    </article>
+  </main>
+  <footer>
+    © eBike Land · <a href="https://www.ebikel.com">www.ebikel.com</a>
+  </footer>
+</body>
+</html>

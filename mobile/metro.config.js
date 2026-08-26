@@ -8,14 +8,14 @@ const path = require("path");
 const fs = require("fs");
 
 /** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
+let config = getDefaultConfig(__dirname);
 
 // Only configure shared folder if it exists (may not exist during Docker build)
 const sharedFolder = path.resolve(__dirname, "../shared");
 const sharedFolderExists = fs.existsSync(sharedFolder);
 
 // DEBUG: Log metro.config.js version and shared folder status at startup
-console.log("[Metro Config] Version: 2025-02-03-v3-fix-dynamic-imports (source: workspace-mobile)");
+console.log("[Metro Config] Version: 2026-08-27-android-embed-2");
 console.log(`[Metro Config] Shared folder: ${sharedFolder}`);
 console.log(`[Metro Config] Shared folder exists: ${sharedFolderExists}`);
 
@@ -99,10 +99,18 @@ config.resolver = {
       return context.resolveRequest(context, mjsPath, platform);
     }
 
-    // Fix @better-auth/expo incorrectly importing metro-config (dev-time only)
-    // This import shouldn't exist in client code - mock it
-    if (moduleName.includes("@expo/metro-config") || moduleName.includes("async-require")) {
-      return { type: "empty" };
+    // SDK 54 moved async-require out of @expo/metro-config. Eager export still
+    // asks for the old path when any import() remains in the graph (EAS Linux).
+    if (
+      moduleName.includes("async-require") &&
+      (moduleName.includes("@expo/metro-config") ||
+        moduleName.includes("metro-config/build/async-require"))
+    ) {
+      return context.resolveRequest(
+        context,
+        require.resolve("expo/internal/async-require-module"),
+        platform,
+      );
     }
 
     // Mock native-only modules on web
@@ -125,5 +133,21 @@ config.resolver = {
   },
 };
 
-// Integrate NativeWind with the Metro configuration.
-module.exports = withNativeWind(withVibecodeMetro(config), { input: "./global.css" });
+// Vibecode's transformer wraps root layout for the web editor. Skip it on EAS
+// and chain the SVG transformer ourselves so production Android can bundle.
+if (process.env.EAS_BUILD === "true") {
+  try {
+    config.transformer = {
+      ...config.transformer,
+      babelTransformerPath: require.resolve("react-native-svg-transformer/expo"),
+    };
+  } catch {
+    // SVG transformer is optional if the package is not installed on the builder.
+  }
+} else {
+  config = withVibecodeMetro(config);
+}
+
+module.exports = withNativeWind(config, {
+  input: path.join(__dirname, "global.css"),
+});

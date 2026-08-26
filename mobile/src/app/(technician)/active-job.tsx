@@ -76,7 +76,11 @@ const mapApiJob = (j: any): Job => ({
   categories: j.category?.split(', ').filter(Boolean) ?? [],
   estimated_price_min: j.estimatedPriceMin,
   estimated_price_max: j.estimatedPriceMax,
-  customer_location: { latitude: j.customerLocationLat, longitude: j.customerLocationLng },
+  customer_location: {
+    latitude: j.customerLocationLat,
+    longitude: j.customerLocationLng,
+    address: j.customerAddress || undefined,
+  },
   technician_location: j.technicianLocationLat
     ? { latitude: j.technicianLocationLat, longitude: j.technicianLocationLng }
     : undefined,
@@ -370,6 +374,10 @@ export default function TechnicianActiveJobScreen() {
   const [issueNotFixedModal, setIssueNotFixedModal] = useState(false);
   const [jobCompleteModal, setJobCompleteModal] = useState<{ visible: boolean; finalPrice: number } | null>(null);
   const [infoModal, setInfoModal] = useState({ visible: false, title: '', message: '' });
+  const [extraModal, setExtraModal] = useState(false);
+  const [extraDescription, setExtraDescription] = useState('');
+  const [extraAmount, setExtraAmount] = useState('');
+  const [extraSubmitting, setExtraSubmitting] = useState(false);
 
   // Refetch immediately when app returns to foreground
   useEffect(() => {
@@ -393,7 +401,10 @@ export default function TechnicianActiveJobScreen() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const text = await res.text();
-      if (!res.ok) throw new Error('Failed to load job');
+      if (!res.ok) {
+        // Keep previous job on screen when server is flaky (pool / cold start)
+        throw new Error(res.status === 404 ? 'Job not found' : `Failed to load job (${res.status})`);
+      }
       const data = text ? JSON.parse(text) : null;
       if (!data?.job) throw new Error('Job not found');
       return mapApiJob(data.job);
@@ -402,10 +413,14 @@ export default function TechnicianActiveJobScreen() {
     refetchInterval: (query) => {
       const data = query.state.data as Job | undefined;
       if (data?.status === 'completed' || data?.status === 'cancelled') return false;
-      return 800;
+      // Was 800ms — flooded Supabase pool and caused 500s mid-complete
+      return 4000;
     },
     refetchIntervalInBackground: false,
-    staleTime: 0,
+    staleTime: 2000,
+    // Never wipe last good job on a failed poll
+    placeholderData: (prev) => prev,
+    retry: 2,
   });
 
   const job = jobQuery.data;
@@ -609,6 +624,76 @@ export default function TechnicianActiveJobScreen() {
     }
   };
 
+  const handleRequestExtraPayment = () => {
+    if (!job || job.payment_status !== 'paid') {
+      setInfoModal({
+        visible: true,
+        title: 'שגיאה',
+        message: 'ניתן לבקש תשלום נוסף רק אחרי שהלקוח שילם על ההזמנה.',
+      });
+      return;
+    }
+    if (!['arrived', 'in_progress'].includes(job.status)) {
+      setInfoModal({
+        visible: true,
+        title: 'שגיאה',
+        message: 'ניתן לבקש תשלום נוסף רק כשהגעת ללקוח או כשהתיקון בתהליך.',
+      });
+      return;
+    }
+    setExtraDescription('');
+    setExtraAmount('');
+    setExtraModal(true);
+  };
+
+  const confirmRequestExtraPayment = async () => {
+    if (!job) return;
+    const amount = Math.round(Number(extraAmount));
+    const description = extraDescription.trim();
+    if (!description) {
+      setInfoModal({ visible: true, title: 'שגיאה', message: 'נא לתאר את התיקון הנוסף' });
+      return;
+    }
+    if (!Number.isFinite(amount) || amount < 10) {
+      setInfoModal({ visible: true, title: 'שגיאה', message: 'נא להזין סכום תקין (לפחות ₪10)' });
+      return;
+    }
+    setExtraSubmitting(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) throw new Error('No session');
+      const res = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/payments/extra-repair`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.id, description, amount }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setInfoModal({
+          visible: true,
+          title: 'שגיאה',
+          message: (data as any)?.error || (data as any)?.message || 'לא ניתן לשלוח בקשה',
+        });
+        return;
+      }
+      setExtraModal(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setInfoModal({
+        visible: true,
+        title: 'נשלח ללקוח',
+        message: `הבקשה לתיקון נוסף בסך ₪${amount} נשלחה ללקוח לאישור ותשלום.`,
+      });
+    } catch (e: any) {
+      setInfoModal({
+        visible: true,
+        title: 'שגיאה',
+        message: e?.message || 'לא ניתן לשלוח בקשה',
+      });
+    } finally {
+      setExtraSubmitting(false);
+    }
+  };
+
   const handleComplete = (args: { finalPrice: number; parts: JobPart[]; notes: string }) => {
     if (!job) return;
     if (job.payment_status !== 'paid') {
@@ -632,8 +717,19 @@ export default function TechnicianActiveJobScreen() {
     statusMutation.mutate(
       { status: 'completed', ...args },
       {
-        onSuccess: () => {
+        onSuccess: (updated) => {
           setShowCompleteForm(false);
+          const completed: Job = {
+            ...job,
+            ...(updated ?? {}),
+            status: 'completed',
+            final_price: args.finalPrice,
+            parts: args.parts,
+            technician_notes: args.notes,
+            completed_at: new Date().toISOString(),
+          };
+          // Seed cache so a failed poll right after complete does not wipe the screen
+          queryClient.setQueryData(['job', params.id], completed);
           updateActiveJob(job.id, {
             status: 'completed',
             final_price: args.finalPrice,
@@ -648,8 +744,10 @@ export default function TechnicianActiveJobScreen() {
   };
 
   // ── Loading / Error ───────────────────────────────────────────────────────
+  // Important: if we already have job data, keep showing it even when a poll fails.
+  // Old logic: isError → full-screen error (lost complete form mid-submit).
 
-  if (jobQuery.isLoading || (!job && !jobQuery.isError)) {
+  if (!job && (jobQuery.isLoading || jobQuery.isFetching || jobQuery.isPending)) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color="#3B82F6" />
@@ -658,12 +756,18 @@ export default function TechnicianActiveJobScreen() {
     );
   }
 
-  if (jobQuery.isError || !job) {
+  if (!job) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
         <Text style={{ color: '#94A3B8', fontSize: 16, textAlign: 'center', marginBottom: 20 }}>
           לא הצלחנו לטעון את ההזמנה
         </Text>
+        <Pressable
+          onPress={() => jobQuery.refetch()}
+          style={{ backgroundColor: '#3B82F6', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginBottom: 12 }}
+        >
+          <Text style={{ color: '#F8FAFC', fontWeight: '600' }}>נסה שוב</Text>
+        </Pressable>
         <Pressable
           onPress={() => router.replace('/(technician)/(tabs)')}
           style={{ backgroundColor: '#1E293B', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 }}
@@ -828,16 +932,25 @@ export default function TechnicianActiveJobScreen() {
           contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 20 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Job info chip */}
+          {/* Bike + price summary */}
           <View style={styles.jobInfoChip}>
             <Wrench size={13} color="#94A3B8" />
             <Text style={styles.jobInfoText} numberOfLines={1}>
-              {job.bike_type === 'electric' ? '⚡ חשמלי' : '🚲 רגיל'} · {job.description}
+              {job.bike_type === 'electric' ? '⚡ חשמלי' : '🚲 רגיל'}
+              {job.categories?.length ? ` · ${job.categories.join(', ')}` : ''}
             </Text>
             <View style={styles.priceChip}>
               <Text style={styles.priceChipText}>₪{job.estimated_price_min}–{job.estimated_price_max}</Text>
             </View>
           </View>
+
+          {/* Customer problem description — full text for technician */}
+          {!!job.description?.trim() && (
+            <Animated.View entering={FadeInUp.delay(60).duration(350)} style={styles.descCard}>
+              <Text style={styles.descLabel}>תיאור התקלה מהלקוח</Text>
+              <Text style={styles.descBody}>{job.description.trim()}</Text>
+            </Animated.View>
+          )}
 
           {/* Customer photo */}
           {job.photo_url ? (
@@ -977,12 +1090,6 @@ export default function TechnicianActiveJobScreen() {
               <Text style={{ color: '#92400E', fontSize: 14, textAlign: 'center', marginTop: 6 }}>
                 הלקוח קיבל התראה לשלם. לא ניתן לצאת לדרך עד אישור התשלום.
               </Text>
-              <Pressable
-                onPress={() => jobQuery.refetch()}
-                style={{ marginTop: 10, alignSelf: 'center', paddingHorizontal: 16, paddingVertical: 8, backgroundColor: 'rgba(245,158,11,0.2)', borderRadius: 10 }}
-              >
-                <Text style={{ color: '#92400E', fontWeight: '600' }}>רענן סטטוס תשלום</Text>
-              </Pressable>
             </View>
           )}
 
@@ -1046,6 +1153,31 @@ export default function TechnicianActiveJobScreen() {
                   <Text style={{ fontSize: 16 }}>🤝</Text>
                   <Text style={{ color: '#10B981', fontSize: 15, fontWeight: '700' }}>
                     הזמן טכנאי נוסף
+                  </Text>
+                </Pressable>
+              )}
+
+              {job?.payment_status === 'paid' &&
+                ['arrived', 'in_progress'].includes(job?.status ?? '') && (
+                <Pressable
+                  onPress={handleRequestExtraPayment}
+                  style={({ pressed }) => [{
+                    opacity: pressed ? 0.85 : 1,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: 'rgba(59,130,246,0.4)',
+                    backgroundColor: 'rgba(59,130,246,0.12)',
+                    paddingVertical: 14,
+                    paddingHorizontal: 20,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }]}
+                >
+                  <Text style={{ fontSize: 16 }}>💳</Text>
+                  <Text style={{ color: '#60A5FA', fontSize: 15, fontWeight: '700' }}>
+                    בקש תשלום נוסף (תיקון נוסף)
                   </Text>
                 </Pressable>
               )}
@@ -1116,6 +1248,97 @@ export default function TechnicianActiveJobScreen() {
         onCancel={() => setIssueNotFixedModal(false)}
         destructive
       />
+
+      {/* Extra repair request modal */}
+      {extraModal && (
+        <View style={{ ...StyleSheet.absoluteFillObject, zIndex: 80, justifyContent: 'flex-end' }}>
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }}
+            onPress={() => !extraSubmitting && setExtraModal(false)}
+          />
+          <View
+            style={{
+              backgroundColor: '#111827',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              padding: 20,
+              paddingBottom: insets.bottom + 20,
+              borderWidth: 1,
+              borderColor: 'rgba(59,130,246,0.35)',
+            }}
+          >
+            <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '800', textAlign: 'center', marginBottom: 6 }}>
+              בקשת תיקון נוסף
+            </Text>
+            <Text style={{ color: '#94A3B8', fontSize: 14, textAlign: 'center', marginBottom: 16, lineHeight: 20 }}>
+              הלקוח יקבל חלון לאישור ותשלום נוסף לפי הסכום שתגדיר
+            </Text>
+            <Text style={{ color: '#CBD5E1', fontSize: 13, fontWeight: '600', marginBottom: 6, textAlign: 'right' }}>
+              תיאור התיקון
+            </Text>
+            <TextInput
+              value={extraDescription}
+              onChangeText={setExtraDescription}
+              placeholder="לדוגמה: החלפת שרשרת / תיקון בלמים נוספים"
+              placeholderTextColor="#64748B"
+              multiline
+              style={{
+                backgroundColor: '#0F172A',
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: '#334155',
+                color: '#F8FAFC',
+                padding: 14,
+                minHeight: 72,
+                textAlign: 'right',
+                marginBottom: 12,
+                fontSize: 15,
+              }}
+            />
+            <Text style={{ color: '#CBD5E1', fontSize: 13, fontWeight: '600', marginBottom: 6, textAlign: 'right' }}>
+              סכום לתשלום (₪)
+            </Text>
+            <TextInput
+              value={extraAmount}
+              onChangeText={setExtraAmount}
+              placeholder="0"
+              placeholderTextColor="#64748B"
+              keyboardType="number-pad"
+              style={{
+                backgroundColor: '#0F172A',
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: '#334155',
+                color: '#F8FAFC',
+                padding: 14,
+                textAlign: 'right',
+                marginBottom: 16,
+                fontSize: 18,
+                fontWeight: '700',
+              }}
+            />
+            <Pressable
+              onPress={confirmRequestExtraPayment}
+              disabled={extraSubmitting}
+              style={{
+                backgroundColor: '#2563EB',
+                borderRadius: 16,
+                paddingVertical: 16,
+                alignItems: 'center',
+                opacity: extraSubmitting ? 0.6 : 1,
+                marginBottom: 10,
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
+                {extraSubmitting ? 'שולח…' : 'שלח ללקוח לאישור ותשלום'}
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => setExtraModal(false)} disabled={extraSubmitting} style={{ paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ color: '#94A3B8', fontWeight: '600' }}>ביטול</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       <ConfirmModal
         visible={!!jobCompleteModal?.visible}
@@ -1217,6 +1440,29 @@ const styles = StyleSheet.create({
   },
 
   // Job info chip
+  descCard: {
+    marginTop: 12,
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(96,165,250,0.28)',
+  },
+  descLabel: {
+    color: '#93C5FD',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'right',
+    letterSpacing: 0.2,
+  },
+  descBody: {
+    color: '#E2E8F0',
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 22,
+    textAlign: 'right',
+  },
   jobInfoChip: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: 'rgba(255,255,255,0.05)',

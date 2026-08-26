@@ -1,20 +1,15 @@
 import "./auth-polyfill";
-import "expo-web-browser"; // Static import so Metro bundles it for @better-auth/expo dynamic import
+import * as WebBrowser from "expo-web-browser";
 import { createAuthClient } from "better-auth/react";
-import { expoClient } from "@better-auth/expo/client";
+import { expoClient, getSetCookie } from "@better-auth/expo/client";
 import * as SecureStore from "expo-secure-store";
-import * as Linking from "expo-linking";
 
-// Detect the actual registered scheme at runtime.
-// In Vibecode sandbox the scheme is "vibecode"; in production builds it's "ebike".
-const APP_SCHEME = (() => {
-  try {
-    const url = Linking.createURL("");
-    return url.split("://")[0] || "ebike";
-  } catch {
-    return "ebike";
-  }
-})();
+// Lets iOS complete ASWebAuthenticationSession when the app is opened via deep link
+WebBrowser.maybeCompleteAuthSession();
+
+// Always the App Store / standalone scheme. Expo Dev Client would report
+// "exp+ebike", which production Better Auth does not treat as a trusted origin.
+const APP_SCHEME = "ebike";
 
 // NOTE: @better-auth/expo's client treats `storage.getItem` as SYNCHRONOUS
 // (it does not await the result internally). AsyncStorage returns Promises, so
@@ -46,6 +41,34 @@ const secureStorageAdapter = {
     SecureStore.deleteItemAsync(key).catch(() => {});
   },
 };
+
+export const AUTH_COOKIE_KEY = "ebike_cookie";
+
+/** Pull the session cookie better-auth appends to the OAuth redirect URL. */
+export function extractOAuthCookieFromUrl(url?: string | null): string | null {
+  if (!url) return null;
+  const marker = "cookie=";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return null;
+  const raw = url.slice(idx + marker.length);
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/** Persist the Set-Cookie header the same way @better-auth/expo does. */
+export function persistOAuthCookie(setCookieHeader: string): void {
+  if (!setCookieHeader.trim()) return;
+  try {
+    const prev = SecureStore.getItem(AUTH_COOKIE_KEY);
+    const next = getSetCookie(setCookieHeader, prev ?? undefined);
+    SecureStore.setItem(AUTH_COOKIE_KEY, next);
+  } catch (e) {
+    console.warn("[Auth] Failed to persist OAuth cookie:", e);
+  }
+}
 
 export const authClient = createAuthClient({
   baseURL: process.env.EXPO_PUBLIC_BACKEND_URL! as string, // IMPORTANT: Use exactly as is written here

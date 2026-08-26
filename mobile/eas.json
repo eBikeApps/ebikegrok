@@ -12,9 +12,11 @@
       }
     },
     "preview": {
-      "distribution": "internal"
-    },
-    "production": {
+      "distribution": "internal",
+      "node": "20.19.4",
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://ebikel-backend.onrender.com",
         "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyCQBuxaLiXjz16PkoWSVVTWVAe9ju92jxo",
@@ -22,7 +24,27 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://gxwcbdphjmrwmrmtqtms.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4d2NiZHBoam1yd21ybXRxdG1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NDQ5MTUsImV4cCI6MjA4MzIyMDkxNX0.vlyWrsHyRoOS9q7SAax0ZN6LIyN8cpHGomA6yhdnuJg",
         "EXPO_PUBLIC_MOCK_PAYMENTS": "false",
-        "EXPO_PUBLIC_ENABLE_DEV_SIMULATE_PAY": "false"
+        "EXPO_PUBLIC_ENABLE_DEV_SIMULATE_PAY": "false",
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "NPM_CONFIG_PRODUCTION": "false",
+        "EXPO_NO_METRO_LAZY": "1",
+        "EAS_BUILD_DISABLE_BUNDLE_JAVASCRIPT_STEP": "1"
+      }
+    },
+    "production": {
+      "node": "20.19.4",
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://ebikel-backend.onrender.com",
+        "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyCQBuxaLiXjz16PkoWSVVTWVAe9ju92jxo",
+        "EXPO_PUBLIC_SUPPORT_PHONE": "+972585858586",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://gxwcbdphjmrwmrmtqtms.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4d2NiZHBoam1yd21ybXRxdG1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NDQ5MTUsImV4cCI6MjA4MzIyMDkxNX0.vlyWrsHyRoOS9q7SAax0ZN6LIyN8cpHGomA6yhdnuJg",
+        "EXPO_PUBLIC_MOCK_PAYMENTS": "false",
+        "EXPO_PUBLIC_ENABLE_DEV_SIMULATE_PAY": "false",
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "NPM_CONFIG_PRODUCTION": "false",
+        "EXPO_NO_METRO_LAZY": "1",
+        "EAS_BUILD_DISABLE_BUNDLE_JAVASCRIPT_STEP": "1"
       },
       "ios": {
         "distribution": "store"

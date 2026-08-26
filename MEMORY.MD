@@ -29,11 +29,15 @@
 
 - Follow the **Core Workflow — Strict Rules** above for every feature or task. Never skip planning or TDD on production code.
 
+- **Production backend only (iron rule — 2026-08-18).** The app is never pointed at localhost.
+  - `EXPO_PUBLIC_BACKEND_URL` must be `https://ebikel-backend.onrender.com` (dev `.env`, Expo, simulator, TestFlight, EAS).
+  - Do **not** start `bun run` on port 3001 for the user. Do **not** switch them back to `127.0.0.1` / `localhost`.
+  - Backend code can still be edited locally; it only goes live via Render deploy.
+
 ## Things to Never Do
 
-<!-- Add explicit anti-patterns or forbidden actions -->
-
--
+- Run or recommend a local backend for day-to-day app testing.
+- Set `EXPO_PUBLIC_BACKEND_URL` to `http://127.0.0.1:3001` or any localhost URL.
 
 ## Project Conventions
 
@@ -577,3 +581,80 @@ Last updated: 2026-07-06 (evening) — Mobile polish session + sign-out modal fi
 > "נמשיך מאתמול" / "תעלה build" / "תבדוק תשלומים"
 
 Last updated: 2026-07-09 — availability sync, job tracking fix, active job hero, mock payments, iOS build 20 done / submit blocked.
+
+---
+
+## 2026-07-27 (session) — PayMe real payments integration + 1.8.0 TestFlight attempt
+
+**User said when leaving:** "תזכור את מה שעשית אני יוצא מהשיחה וחוזר"
+
+### What was done in this session
+
+#### 1. Version 1.8.0 build & TestFlight / App Store attempt
+- Bumped `mobile/app.json`: version `1.8.0`, build `21`
+- Committed all pending changes as "Release v1.8.0..."
+- Pushed to GitHub
+- Ran `eas build --platform ios --profile production --auto-submit`
+- Build succeeded: **ID 23b42136-1cb5-47a9-af0b-f09be6467498** (1.8.0 / 21)
+  - Commit: `730e18537173a00bafe8dd25823078a76cf88be0`
+  - IPA ready
+- Submission was scheduled (ID example 7f132d2e...) but hit the Apple agreement error again.
+- **Status:** Build ready. Needs Apple Developer agreement signed for submission to go through to TestFlight.
+
+#### 2. PayMe integration (main task)
+User provided:
+- Partner key: `newpartners_lxr3wBEM`
+- API ID (partner): `MPL17838-68145TBW-9MKFP23O-VRZHNWID`
+- Sandbox: `https://sandbox.payme.io/`
+
+**Files changed:**
+
+- **New:** `backend/src/lib/payme.ts`
+  - `createPaymeSale()` — generates hosted payment via PayMe
+  - Converts ILS to agorot (*100)
+  - Uses env: `PAYME_PARTNER_KEY`, `PAYME_API_ID`, `PAYME_BASE_URL`
+  - Endpoint: `/api/generate-sale` (based on PayMe doc titles — may need to change to `/api/sale`)
+  - Basic `verifyPaymeNotify()`
+
+- **Updated:** `backend/src/routes/payments.ts`
+  - In `/api/payments/create`:
+    - `isMockPaymentsMode()` → old mock flow (fake card page)
+    - else → calls PayMe, stores `saleId` in `growTransactionCode`, returns real `paymentUrl`
+  - Added `POST /api/payments/payme/notify` (webhook)
+    - On paid → `markMainJobPaid()` + push notification to technician
+  - Extended `syncJobPaymentOnSuccess()` to support payme: refs too
+
+- Config:
+  - `backend/.env` → `MOCK_PAYMENTS=false` + sandbox keys
+  - `backend/.env.production` → `MOCK_PAYMENTS=false` + placeholders
+  - `mobile/eas.json` (production) → `EXPO_PUBLIC_MOCK_PAYMENTS=false`
+  - `mobile/.env` → `EXPO_PUBLIC_MOCK_PAYMENTS=false`
+  - `backend/src/lib/mock-payments.ts` → provider now returns "payme" when not mock
+
+**How it works now:**
+- When MOCK_PAYMENTS=false + keys set: real PayMe hosted page opens in the WebView
+- Webhook is the source of truth for marking paid
+- Redirects still use the existing success/cancel pages for UI
+- No more "simulate" button when using real provider
+- Response includes `provider: "payme"`
+
+**Handoff notes:**
+- Backend must be deployed with the three PayMe vars + MOCK_PAYMENTS=false
+- Test first in sandbox
+- If create sale fails → check server logs and adjust endpoint/payload in payme.ts
+- For real production later: change BASE_URL to https://payme.io and use live keys
+- The 1.8.0 build already ships with mock=false on client side
+
+### Current state (when user returns)
+- 1.8.0 (build 21) is built and ready for TestFlight once Apple agreement is signed.
+- Payments logic now supports real PayMe (sandbox configured locally).
+- Old mock flow is still there as fallback when MOCK_PAYMENTS=true.
+
+### Suggested next steps on return
+1. Deploy backend with PayMe keys.
+2. Test full flow: request repair → technician accepts → pay with PayMe sandbox → webhook marks paid → technician can proceed.
+3. Fix any PayMe API quirks if needed.
+4. Sign Apple agreement if you want to push 1.8.0 to TestFlight.
+5. When stable → new EAS build + submit.
+
+Last updated: 2026-07-27 — PayMe integration + 1.8.0 handoff.

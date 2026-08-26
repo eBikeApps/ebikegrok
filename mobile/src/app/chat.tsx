@@ -21,6 +21,7 @@ import * as Haptics from 'expo-haptics';
 
 import { authClient } from '@/lib/auth/auth-client';
 import { useSession } from '@/lib/auth/use-session';
+import { firstSearchParam, safeImageSource } from '@/lib/geo';
 
 interface ChatMessage {
   id: string;
@@ -47,11 +48,14 @@ export default function ChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data: session } = useSession();
-  const params = useLocalSearchParams<{
-    jobId: string;
-    otherName: string;
-    otherAvatar: string;
+  const rawParams = useLocalSearchParams<{
+    jobId?: string;
+    otherName?: string;
+    otherAvatar?: string;
   }>();
+  const jobId = firstSearchParam(rawParams.jobId);
+  const otherName = firstSearchParam(rawParams.otherName) || 'צ\'אט';
+  const otherAvatar = safeImageSource(firstSearchParam(rawParams.otherAvatar));
 
   const myId = session?.user?.id;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -63,7 +67,7 @@ export default function ChatScreen() {
   const isFetchingRef = useRef(false);
 
   const fetchMessages = useCallback(async (initial = false) => {
-    if (isFetchingRef.current) return;
+    if (!jobId || isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
       if (!tokenRef.current) {
@@ -71,7 +75,7 @@ export default function ChatScreen() {
       }
       if (!tokenRef.current) return;
       const res = await fetch(
-        `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/jobs/${params.jobId}/messages`,
+        `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/jobs/${jobId}/messages`,
         { headers: { Authorization: `Bearer ${tokenRef.current}` } }
       );
       if (!res.ok) return;
@@ -87,7 +91,7 @@ export default function ChatScreen() {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [params.jobId]);
+  }, [jobId]);
 
   // Seed token from session
   useEffect(() => {
@@ -111,7 +115,7 @@ export default function ChatScreen() {
       if (!tokenRef.current) tokenRef.current = await getToken();
       if (!tokenRef.current) return;
       await fetch(
-        `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/jobs/${params.jobId}/messages`,
+        `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/jobs/${jobId}/messages`,
         {
           method: 'POST',
           headers: {
@@ -131,6 +135,7 @@ export default function ChatScreen() {
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
 
@@ -146,9 +151,9 @@ export default function ChatScreen() {
         {/* Avatar for other person */}
         {!isMine && (
           <View style={[styles.avatarSlot, !showAvatar && { opacity: 0 }]}>
-            {item.sender.image ? (
+            {safeImageSource(item.sender.image) ? (
               <Image
-                source={{ uri: item.sender.image }}
+                source={safeImageSource(item.sender.image)}
                 style={styles.msgAvatar}
               />
             ) : (
@@ -204,20 +209,20 @@ export default function ChatScreen() {
         </Pressable>
 
         <View style={styles.headerCenter}>
-          {params.otherAvatar ? (
+          {otherAvatar ? (
             <Image
-              source={{ uri: params.otherAvatar }}
+              source={otherAvatar}
               style={styles.headerAvatar}
             />
           ) : (
             <View style={[styles.headerAvatar, styles.headerAvatarFallback]}>
               <Text style={{ color: '#fff', fontWeight: '700', fontSize: 17 }}>
-                {params.otherName?.charAt(0) ?? '?'}
+                {otherName.charAt(0)}
               </Text>
             </View>
           )}
           <View style={styles.onlineDot} />
-          <Text style={styles.headerName}>{params.otherName ?? 'צ\'אט'}</Text>
+          <Text style={styles.headerName}>{otherName}</Text>
         </View>
 
         <View style={{ width: 40 }} />

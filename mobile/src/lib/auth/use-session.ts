@@ -14,11 +14,11 @@ type SessionData = Awaited<ReturnType<typeof authClient.getSession>>["data"];
 export async function refreshSessionAfterAuth(queryClient: QueryClient): Promise<boolean> {
   queryClient.removeQueries({ queryKey: ["me"] });
 
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 10; attempt++) {
     await queryClient.refetchQueries({ queryKey: SESSION_QUERY_KEY });
     const cached = queryClient.getQueryData<SessionData>(SESSION_QUERY_KEY);
     if (cached?.user) return true;
-    await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+    await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
   }
 
   const result = await authClient.getSession();
@@ -33,15 +33,23 @@ export const useSession = () => {
   return useQuery({
     queryKey: SESSION_QUERY_KEY,
     queryFn: async () => {
-      const result = await authClient.getSession();
-      console.log('[Session] getSession user:', result.data?.user?.email ?? 'null');
-      return result.data ?? null;
+      try {
+        const result = await authClient.getSession();
+        return result.data ?? null;
+      } catch (err) {
+        // Network / cold-start failures must not wipe a valid cached session
+        // (that was causing "logout" mid repair-request → technician-select).
+        console.warn("[Session] getSession failed, preserving cache if any:", err);
+        throw err;
+      }
     },
-    // staleTime 0 ensures that after invalidate/refetch we always hit the network.
-    // Without it, a stale "null" session can be served from cache right after
-    // sign-in, sending the user back to /sign-in.
-    staleTime: 0,
-    gcTime: 1000 * 60 * 5,
+    // Avoid refetch-on-every-navigation; transient nulls were kicking users to /sign-in.
+    staleTime: 1000 * 60 * 2,
+    gcTime: 1000 * 60 * 30,
+    retry: 2,
+    retryDelay: (i) => Math.min(1000 * 2 ** i, 4000),
+    // Keep showing last known session while refetching
+    placeholderData: (previousData) => previousData,
   });
 };
 

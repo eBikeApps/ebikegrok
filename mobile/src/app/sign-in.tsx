@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { authClient } from "@/lib/auth/auth-client";
 import { refreshSessionAfterAuth } from "@/lib/auth/use-session";
+import { signInWithSocial } from "@/lib/auth/social-sign-in";
 import { useQueryClient } from "@tanstack/react-query";
 import Animated, {
   useSharedValue,
@@ -33,7 +34,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
-import * as Linking from "expo-linking";
 import { BookOpen } from "lucide-react-native";
 import { playSystemSound } from "@/lib/system-sounds";
 import { useLanguageStore } from "@/lib/store";
@@ -337,33 +337,15 @@ export default function SignIn() {
   const handleSocialSignIn = async (provider: "google" | "apple") => {
     setLoadingProvider(provider);
     try {
-      const callbackURL = Linking.createURL("sign-in");
-      console.log("[SignIn] Social sign-in", provider, "callbackURL:", callbackURL);
-      const result = await (authClient.signIn as any).social({
-        provider,
-        callbackURL,
-      });
-      console.log("[SignIn] Social result:", JSON.stringify(result));
-      if (result?.error) {
+      const result = await signInWithSocial(provider, queryClient);
+      if (result.status === "cancelled") return;
+      if (result.status === "error") {
         playSystemSound("error");
-        const errMsg = result.error?.message || result.error?.code || JSON.stringify(result.error);
-        console.error("[SignIn] Social error result:", errMsg);
-        setErrorModal({ visible: true, message: errMsg || (provider === "google" ? "לא ניתן להתחבר עם Google." : "לא ניתן להתחבר עם Apple.") });
-      } else {
-        playSystemSound("success");
-        const ready = await refreshSessionAfterAuth(queryClient);
-        if (ready) {
-          router.replace("/");
-        } else {
-          setErrorModal({
-            visible: true,
-            message:
-              provider === "google"
-                ? "ההתחברות עם Google הצליחה אך לא הצלחנו לטעון את הפרופיל. נסה שוב."
-                : "ההתחברות עם Apple הצליחה אך לא הצלחנו לטעון את הפרופיל. נסה שוב.",
-          });
-        }
+        setErrorModal({ visible: true, message: result.message });
+        return;
       }
+      playSystemSound("success");
+      router.replace("/");
     } catch (err: unknown) {
       console.error("[SignIn] Social exception:", err);
       playSystemSound("error");

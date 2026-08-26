@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>eBike — מצב השקה</title>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --bg: #eef2f6;
+      --card: #fff;
+      --red: #dc2626;
+      --red-bg: #fef2f2;
+      --red-bd: #fecaca;
+      --yellow: #d97706;
+      --yellow-bg: #fffbeb;
+      --yellow-bd: #fde68a;
+      --green: #059669;
+      --green-bg: #ecfdf5;
+      --green-bd: #a7f3d0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Heebo", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+    header {
+      background: linear-gradient(165deg, #052e16 0%, #14532d 50%, #0f172a 100%);
+      color: #fff;
+      padding: 36px 22px 28px;
+    }
+    header .wrap, main { max-width: 880px; margin: 0 auto; }
+    header h1 { margin: 0 0 8px; font-size: 1.85rem; letter-spacing: -0.03em; }
+    header p { margin: 0; color: #bbf7d0; }
+    .meta {
+      margin-top: 14px;
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .counts {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .count {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px;
+      padding: 12px 10px;
+      text-align: center;
+    }
+    .count b { display: block; font-size: 28px; line-height: 1.1; }
+    .count span { font-size: 12px; opacity: .8; }
+    .count.red b { color: #fca5a5; }
+    .count.yellow b { color: #fcd34d; }
+    .count.green b { color: #6ee7b7; }
+    main { padding: 22px 16px 64px; }
+    section { margin-bottom: 28px; }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .dot {
+      width: 12px; height: 12px; border-radius: 99px;
+      display: inline-block;
+    }
+    .dot.red { background: var(--red); }
+    .dot.yellow { background: var(--yellow); }
+    .dot.green { background: var(--green); }
+    article {
+      background: var(--card);
+      border-radius: 18px;
+      padding: 16px 16px 14px;
+      margin-bottom: 10px;
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 22px rgba(15,23,42,.05);
+    }
+    article.red { background: var(--red-bg); border-color: var(--red-bd); }
+    article.yellow { background: var(--yellow-bg); border-color: var(--yellow-bd); }
+    article.green { background: var(--green-bg); border-color: var(--green-bd); }
+    article h3 { margin: 0 0 6px; font-size: 1.02rem; }
+    article p { margin: 0; color: #334155; font-size: 14.5px; }
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      margin-bottom: 8px;
+    }
+    .red .tag { background: #fee2e2; color: #991b1b; }
+    .yellow .tag { background: #fef3c7; color: #92400e; }
+    .green .tag { background: #d1fae5; color: #065f46; }
+    footer {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 0 16px 40px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    a { color: #047857; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>מצב השקה — eBike</h1>
+      <p>מה דחוף, מה אפשר לחכות, ומה כבר עובד.</p>
+      <div class="meta">
+        נבדק ב־18 באוגוסט 2026, 03:14 · שרת פרודקשן + אתר + סימולטור Safari · ביילד 1.8.2 (#25) בבנייה
+      </div>
+      <div class="counts">
+        <div class="count red"><b>5</b><span>דחוף — אדום</span></div>
+        <div class="count yellow"><b>6</b><span>לסדר — צהוב</span></div>
+        <div class="count green"><b>12</b><span>עובד — ירוק</span></div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2><span class="dot red"></span> דחוף — בלי זה אי אפשר לעלות לחנות באמת</h2>
+
+      <article class="red">
+        <div class="tag">תשלום</div>
+        <h3>השרת עדיין במצב תשלום מדומה</h3>
+        <p>
+          <code>/health</code> מחזיר <b>mockPayments: true</b>. בחנות לקוח לא יכול «לשלם» בדף דמו.
+          צריך PayMe חי ב־Render ו־<code>MOCK_PAYMENTS=false</code>, ואז לוודא ש־health מתחלף.
+        </p>
+      </article>
+
+      <article class="red">
+        <div class="tag">אתר · AS10</div>
+        <h3>אין דף תמיכה ציבורי</h3>
+        <p>
+          <code>https://www.ebikel.com/support</code> מחזיר 404.
+          מדיניות הפרטיות חיה — מצוין. ל־Apple עדיין חסר Support URL (וואטסאפ + אימייל).
+        </p>
+      </article>
+
+      <article class="red">
+        <div class="tag">חנות אפל</div>
+        <h3>חסרים נכסי App Store</h3>
+        <p>
+          צילומי מסך, תיאור, כותרת משנה, מילות מפתח, וסימון Privacy Nutrition Labels.
+          אמרת שתעלה אותם — עד שזה בפנים אין Submit.
+        </p>
+      </article>
+
+      <article class="red">
+        <div class="tag">Android</div>
+        <h3>Play Console ממתין לאימות</h3>
+        <p>
+          אין לאן להעלות <code>com.ebike.app</code> עד שהחשבון מאושר.
+          אחרי האימות: Create app → Internal testing → AAB.
+        </p>
+      </article>
+
+      <article class="red">
+        <div class="tag">TestFlight</div>
+        <h3>1.8.2 עדיין לא במכשיר</h3>
+        <p>
+          הבילד רץ עכשיו (IN_PROGRESS) ונשלח אוטומטית ל־TestFlight.
+          תיקוני הקריסות והמדיניות החדשה נמצאים ב־1.8.2 / build 25 — לא ב־1.8.1.
+          להתקין רק אחרי שמופיע ב־TestFlight.
+          <br />מעקב:
+          <a href="https://expo.dev/accounts/elvisebike/projects/ebike/builds/750ef83e-76b4-430f-9049-7a31d4da34af">בילד</a>
+          ·
+          <a href="https://expo.dev/accounts/elvisebike/projects/ebike/submissions/189116be-69f2-456e-a28c-3a9d5bcb3397">שליחה לאפל</a>
+        </p>
+      </article>
+    </section>
+
+    <section>
+      <h2><span class="dot yellow"></span> צריך לסדר — האפליקציה עובדת בלי זה</h2>
+
+      <article class="yellow">
+        <div class="tag">מייל</div>
+        <h3>תיבת support@ebikel.com</h3>
+        <p>
+          כתובה במדיניות ובאפליקציה. אמרת שתפתח אותה בהמשך.
+          עד אז פניות מהחנות / מהמסמך לא יגיעו.
+        </p>
+      </article>
+
+      <article class="yellow">
+        <div class="tag">אתר</div>
+        <h3>אין דפי תנאים / ביטול באתר</h3>
+        <p>
+          יש אותם באפליקציה. באתר חי רק פרטיות.
+          מומלץ להעלות גם תנאי שימוש ומדיניות ביטול — לא חוסם Submit אם יש Privacy + Support.
+        </p>
+      </article>
+
+      <article class="yellow">
+        <div class="tag">אפל</div>
+        <h3>הסכמים, מס ובנק ב־App Store Connect</h3>
+        <p>
+          בעבר submit נחסם בגלל הסכם. כדאי לפתוח Agreements / Tax / Banking ולוודא שהכול ירוק לפני הלחיצה על Submit.
+        </p>
+      </article>
+
+      <article class="yellow">
+        <div class="tag">סקירה</div>
+        <h3>הערות לסוקר + הצהרת מיקום ברקע</h3>
+        <p>
+          יש חשבון דמו — מצוין. עדיין כדאי דף הוראות קצר (לקוח + טכנאי) והסבר למה לטכנאי יש מיקום ברקע.
+        </p>
+      </article>
+
+      <article class="yellow">
+        <div class="tag">מפות / Google</div>
+        <h3>SHA-1 של Play App Signing</h3>
+        <p>
+          אחרי ביילד Android: להוסיף את ה־SHA של Play ל־Google Cloud (מפות + התחברות Google).
+          בלי זה מפה שחורה או Google login שבור בפרודקשן אנדרואיד.
+        </p>
+      </article>
+
+      <article class="yellow">
+        <div class="tag">גיט</div>
+        <h3>שינויים מקומיים עדיין לא ב־main</h3>
+        <p>
+          הבילד ל־TestFlight כן אורז את הקבצים מהמחשב (כולל תיקוני קריסות).
+          בגיט עדיין יש הרבה קבצים לא שמורים. כדאי commit כדי שלא ילכו לאיבוד.
+        </p>
+      </article>
+    </section>
+
+    <section>
+      <h2><span class="dot green"></span> עובד — אפשר לסמוך על זה</h2>
+
+      <article class="green">
+        <div class="tag">שרת</div>
+        <h3>פרודקשן חי ומסד הנתונים מחובר</h3>
+        <p>
+          <code>https://ebikel-backend.onrender.com/health</code> תקין.
+          טבלאות user / session / account נפתחות (12 משתמשים, סשנים פעילים).
+        </p>
+      </article>
+
+      <article class="green">
+        <div class="tag">התחברות</div>
+        <h3>אימייל וסיסמה</h3>
+        <p>
+          עכשיו אומת מול הפרודקשן: <code>a@abc.com</code> מחזיר 200 ופרופיל לקוח.
+        </p>
+      </article>
+
+      <article class="green">
+        <div class="tag">התחברות</div>
+        <h3>Google — יצירת קישור OAuth</h3>
+        <p>
+          <code>POST /api/auth/sign-in/social</code> מחזיר 200 וקישור ל־accounts.google.com
+          עם redirect ל־Render. הכפתור באפליקציה יכול להתחיל את הזרימה.
+        </p>
+      </article>
+
+      <article class="green">
+        <div class="tag">אתר · AS09</div>
+        <h3>מדיניות פרטיות באוויר</h3>
+        <p>
+          נפתח בסימולטור iPhone 16, Safari:
+          <a href="https://www.ebikel.com/privacy">https://www.ebikel.com/privacy</a>
+          מפנה לקובץ החי, מציג מדיניות בעברית, אימייל ואתר נכונים, תאריך 18 באוגוסט 2026.
+          אפשר להדביק את הקישור הזה ב־App Store Connect.
+        </p>
+      </article>
+
+      <article class="green">
+        <div class="tag">מוצר</div>
+        <h3>בדיקת E2E מלאה — הצלחה</h3>
+        <p>
+          לפי מה שאישרת: לקוח ↔ טכנאי עובד עד הסוף.
+          זה הבסיס. הבילד החדש מוסיף הגנות מקריסות בשלבי תשלום / מעקב / סיום.
+        </p>
+      </article>
+
+      <article class="green">
+        <div class="tag">סקירה</div>
+        <h3>חשבון דמו לסוקר קיים</h3>
+        <p>לקוח <code>a@abc.com</code> / טכנאי <code>tech-test@ebike.com</code> — סיסמה 123456.</p>
+      </article>
+
+      <article class="green">
+        <div class="tag">iOS</div>
+        <h3>זהות האפליקציה נכונה</h3>
+        <p>
+          Bundle <code>com.ebikeland.app</code> · ASC <code>6775995887</code> · EAS <code>@elvisebike/ebike</code>.
+          תעודת הפצה בתוקף עד פברואר 2027. שליחה ל־TestFlight מתוזמנת אוטומטית.
+        </p>
+      </article>
+
+      <article class="green">
+        <div class="tag">משפטי באפליקציה</div>
+        <h3>תנאים, פרטיות וביטול מעודכנים</h3>
+        <p>
+          בלי כתובת/טלפון במדיניות. אתר <code>ebikel.com</code>, אימייל <code>support@ebikel.com</code>,
+          Google/Apple ומיקום ברקע כתובים, ביטול אחרי תשלום דרך תמיכה.
+        </p>
+      </article>
+
+      <article class="green">
+        <div class="tag">יציבות</div>
+        <h3>הגנות מקריסה בשלבים האחרונים</h3>
+        <p>
+          מפה רק עם נקודות חוקיות, קישור תשלום מקודד, WebView לא נזרק באמצע,
+          תמונות רק מ־http/https, ומסך «משהו השתבש» במקום נפילה מלאה.
+        </p>
+      </article>
+
+      <article class="green">
+        <div class="tag">הרשאות</div>
+        <h3>מצלמה, תמונות, מיקום — טקסטים תקינים</h3>
+        <p>infoPlist בעברית/אנגלית. מיקום ברקע רק לטכנאי זמין.</p>
+      </article>
+
+      <article class="green">
+        <div class="tag">חשבון</div>
+        <h3>מחיקת חשבון מתוך האפליקציה</h3>
+        <p>קיים בפרופיל + <code>DELETE /api/users/me</code> — דרישת Apple.</p>
+      </article>
+
+      <article class="green">
+        <div class="tag">בנייה</div>
+        <h3>צינור EAS ל־iOS עובד</h3>
+        <p>העלאה, תעודות, ותזמון Submit ל־TestFlight עברו בלי שגיאה בבילד הנוכחי.</p>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    אי אפשר היה להתקין את האפליקציה עצמה בסימולטור הזה (אין Expo Go / ביילד מקומי מותקן).
+    נבדק במקום: API פרודקשן, דף הפרטיות ב־Safari על iPhone 16, סטטוס EAS, וה־E2E שאישרת במכשיר.
+    קובץ: <code>docs/eBike-launch-status.html</code>
+  </footer>
+</body>
+</html>

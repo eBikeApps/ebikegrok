@@ -19,6 +19,7 @@ import {
   Star,
   Edit2,
   Trash2,
+  MessageCircle,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -35,6 +36,7 @@ import { useSession, useSignOut, SESSION_QUERY_KEY } from '@/lib/auth/use-sessio
 import { authClient } from '@/lib/auth/auth-client';
 import { api } from '@/lib/api/api';
 import Constants from 'expo-constants';
+import { openSupportWhatsApp } from '@/lib/support';
 
 export default function TechnicianProfileScreen() {
   const router = useRouter();
@@ -435,6 +437,22 @@ export default function TechnicianProfileScreen() {
                 <Edit2 size={20} color="#6B7280" />
               </View>
               <Text className="ml-3 text-gray-800 font-medium flex-1">{t('editProfile')}</Text>
+              <ChevronIcon size={20} color="#9CA3AF" />
+            </Pressable>
+
+            <Pressable onPress={() => openSupportWhatsApp()} className="flex-row items-center p-4 border-b border-gray-100">
+              <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
+                <MessageCircle size={20} color="#6B7280" />
+              </View>
+              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('contactWhatsApp')}</Text>
+              <ChevronIcon size={20} color="#9CA3AF" />
+            </Pressable>
+
+            <Pressable onPress={() => router.push({ pathname: '/legal', params: { type: 'cancellation' } })} className="flex-row items-center p-4 border-b border-gray-100">
+              <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
+                <Shield size={20} color="#6B7280" />
+              </View>
+              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('cancellationPolicy')}</Text>
               <ChevronIcon size={20} color="#9CA3AF" />
             </Pressable>
 

@@ -4,6 +4,7 @@ import { useActiveJobStore } from '@/lib/store';
 import { Job, JobStatus } from '@/lib/types';
 import { shouldSkipCompletionScreen } from '@/lib/completion-flow';
 import { parseJobCategories } from '@/lib/job-categories';
+import { toLatLng } from '@/lib/geo';
 
 const TERMINAL_STATUSES: JobStatus[] = ['completed', 'cancelled'];
 
@@ -27,14 +28,13 @@ export function mapDbJobToCustomerJob(dbJob: any): Job {
     estimated_price_min: dbJob.estimatedPriceMin ?? 0,
     estimated_price_max: dbJob.estimatedPriceMax ?? 0,
     customer_location: {
-      latitude: dbJob.customerLocationLat,
-      longitude: dbJob.customerLocationLng,
+      ...(toLatLng(dbJob.customerLocationLat, dbJob.customerLocationLng) ?? {
+        latitude: 32.0853,
+        longitude: 34.7818,
+      }),
       address: dbJob.customerAddress ?? undefined,
     },
-    technician_location:
-      dbJob.technicianLocationLat && dbJob.technicianLocationLng
-        ? { latitude: dbJob.technicianLocationLat, longitude: dbJob.technicianLocationLng }
-        : undefined,
+    technician_location: toLatLng(dbJob.technicianLocationLat, dbJob.technicianLocationLng) ?? undefined,
     payment_status: dbJob.paymentStatus ?? 'pending',
     final_price: dbJob.finalPrice ?? undefined,
     created_at: dbJob.createdAt,
@@ -74,12 +74,8 @@ export function mapDbJobToCustomerJob(dbJob: any): Job {
           base_price: dbJob.technician.basePrice ?? 0,
           total_earnings: 0,
           current_location:
-            dbJob.technician.currentLocationLat && dbJob.technician.currentLocationLng
-              ? {
-                  latitude: dbJob.technician.currentLocationLat,
-                  longitude: dbJob.technician.currentLocationLng,
-                }
-              : undefined,
+            toLatLng(dbJob.technician.currentLocationLat, dbJob.technician.currentLocationLng) ??
+            undefined,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }

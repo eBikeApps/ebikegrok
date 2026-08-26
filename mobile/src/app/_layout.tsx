@@ -98,6 +98,7 @@ function RootLayoutNav() {
         <Stack.Screen name="welcome" options={{ gestureEnabled: false }} />
         <Stack.Screen name="sign-in" />
         <Stack.Screen name="sign-up" />
+        <Stack.Screen name="oauth-callback" options={{ gestureEnabled: false }} />
         <Stack.Screen name="(customer)" />
         <Stack.Screen name="(technician)" />
         <Stack.Screen

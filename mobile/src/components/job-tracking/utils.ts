@@ -29,6 +29,7 @@ export function calcEta(distanceKm: number): number {
 export function formatTime(isoString?: string): string | null {
   if (!isoString) return null;
   const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return null;
   const h = d.getHours().toString().padStart(2, '0');
   const m = d.getMinutes().toString().padStart(2, '0');
   return `${h}:${m}`;

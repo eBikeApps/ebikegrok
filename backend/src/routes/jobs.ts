@@ -680,18 +680,45 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
       return c.json({ job: completedJob });
     }
 
-    // Block customer from cancelling after payment has been made
+    // Customer may only cancel before payment (avoid mess after charge)
     if (status === "cancelled" && user.role === "customer" && job.paymentStatus === "paid") {
-      return c.json({ message: "לא ניתן לבטל הזמנה לאחר ביצוע תשלום" }, 400);
+      return c.json(
+        {
+          message:
+            "לא ניתן לבטל באפליקציה אחרי תשלום. אם הטכנאי כבר בדרך — פנה לתמיכה בוואטסאפ (+972-58-585-8586) כדי לטפל בביטול ובהחזר.",
+        },
+        400
+      );
     }
 
     if (status === "cancelled") {
       updateData.cancelledAt = new Date();
 
+      // Technician cancels after payment → automatic refund process (full refund before/at cancel)
+      if (
+        user.role === "technician" &&
+        (job.paymentStatus === "paid" || job.paymentStatus === "refund_requested")
+      ) {
+        updateData.paymentStatus = "refund_requested";
+        const refundAmount = job.finalPrice ?? job.estimatedPriceMax ?? job.estimatedPriceMin ?? 0;
+        try {
+          await prisma.transaction.create({
+            data: {
+              technicianId: user.id,
+              jobId: id,
+              type: "refund",
+              amount: refundAmount,
+              status: "pending",
+            },
+          });
+        } catch (txErr) {
+          console.error("[Cancel] refund transaction create error:", txErr);
+        }
+      }
+
       // Notify the other party about the cancellation
       try {
         if (user.role === "customer" && job.technicianId) {
-          // Customer cancelled — notify the technician
           const tech = await prisma.user.findUnique({
             where: { id: job.technicianId },
             select: { expoPushToken: true },
@@ -705,16 +732,19 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
             );
           }
         } else if (user.role === "technician") {
-          // Technician cancelled — notify the customer
           const customer = await prisma.user.findUnique({
             where: { id: job.customerId },
             select: { expoPushToken: true },
           });
           if (customer?.expoPushToken) {
+            const paidNote =
+              job.paymentStatus === "paid"
+                ? " ייפתח תהליך החזר אוטומטי."
+                : "";
             await sendPushNotification(
               customer.expoPushToken,
               "❌ הטכנאי ביטל",
-              "הטכנאי לא יכול להגיע. מחפש טכנאי אחר...",
+              `הטכנאי ביטל את ההזמנה.${paidNote}`,
               { jobId: id, screen: "job-tracking" }
             );
           }

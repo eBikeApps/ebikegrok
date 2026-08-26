@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { authClient } from "@/lib/auth/auth-client";
 import { refreshSessionAfterAuth } from "@/lib/auth/use-session";
+import { signInWithSocial } from "@/lib/auth/social-sign-in";
 import { useQueryClient } from "@tanstack/react-query";
 import Animated, {
   useSharedValue,
@@ -24,7 +25,6 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { ChevronLeft, ChevronRight } from "lucide-react-native";
-import * as Linking from "expo-linking";
 import { playSystemSound } from "@/lib/system-sounds";
 import { LinearGradient } from "expo-linear-gradient";
 import { EBikeLogo, GoogleIcon, AppleIconWhite, SocialButton3D } from "@/components/auth/AuthUi";
@@ -60,24 +60,15 @@ export default function SignUp() {
   const handleSocialSignIn = async (provider: "google" | "apple") => {
     setLoadingProvider(provider);
     try {
-      const callbackURL = Linking.createURL("sign-in");
-      const result = await (authClient.signIn as any).social({ provider, callbackURL });
-      if (result?.error) {
+      const result = await signInWithSocial(provider, queryClient);
+      if (result.status === "cancelled") return;
+      if (result.status === "error") {
         playSystemSound("error");
-        const errMsg = result.error?.message || result.error?.code || JSON.stringify(result.error);
-        setErrorModal({ visible: true, message: errMsg || t("somethingWentWrong") });
-      } else {
-        playSystemSound("success");
-        const ready = await refreshSessionAfterAuth(queryClient);
-        if (ready) {
-          router.replace("/");
-        } else {
-          setErrorModal({
-            visible: true,
-            message: t("somethingWentWrong"),
-          });
-        }
+        setErrorModal({ visible: true, message: result.message });
+        return;
       }
+      playSystemSound("success");
+      router.replace("/");
     } catch (err: unknown) {
       playSystemSound("error");
       const msg = err instanceof Error ? err.message : String(err);

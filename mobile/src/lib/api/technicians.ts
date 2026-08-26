@@ -27,33 +27,42 @@ export async function getAvailableTechnicians(
     }
 
     const data = await api.get<GetAvailableTechniciansResponse>(url);
+    const list = Array.isArray(data?.technicians) ? data.technicians : [];
 
-    // Map backend fields to frontend TechnicianProfile type
-    return data.technicians.map((tech: any) => ({
-      id: tech.id,
-      name: tech.name,
-      email: tech.email,
-      phone: tech.phone,
-      avatar_url: tech.image,
-      role: 'technician' as const,
-      bio: tech.bio,
-      rating: tech.rating || 0,
-      total_reviews: tech.totalReviews || 0,
-      verification_status: tech.isApproved ? 'verified' : 'pending',
-      vehicle_type: tech.vehicleType,
-      service_radius: tech.serviceRadius || 40,
-      is_available: tech.isAvailable || false,
-      current_location: tech.currentLocationLat && tech.currentLocationLng ? {
-        latitude: tech.currentLocationLat,
-        longitude: tech.currentLocationLng,
-      } : undefined,
-      base_price: tech.basePrice || 50,
-      total_earnings: tech.totalEarnings || 0,
-      created_at: tech.createdAt,
-      updated_at: tech.updatedAt,
-      distance: tech.distance,
-      eta: tech.eta,
-    }));
+    // Map backend fields to frontend TechnicianProfile type — always safe numbers
+    // so UI never crashes on undefined.distance.toFixed / missing location.
+    return list
+      .map((tech: any): TechnicianWithDistance | null => {
+        if (!tech?.id) return null;
+        const lat = Number(tech.currentLocationLat);
+        const lng = Number(tech.currentLocationLng);
+        const hasLocation = Number.isFinite(lat) && Number.isFinite(lng);
+        const distance = Number(tech.distance);
+        const eta = Number(tech.eta);
+        return {
+          id: tech.id,
+          name: tech.name ?? '',
+          email: tech.email ?? '',
+          phone: tech.phone ?? '',
+          avatar_url: tech.image ?? '',
+          role: 'technician' as const,
+          bio: tech.bio ?? '',
+          rating: Number(tech.rating) || 0,
+          total_reviews: Number(tech.totalReviews) || 0,
+          verification_status: tech.isApproved ? 'verified' : 'pending',
+          vehicle_type: tech.vehicleType ?? '',
+          service_radius: Number(tech.serviceRadius) || 40,
+          is_available: !!tech.isAvailable,
+          current_location: hasLocation ? { latitude: lat, longitude: lng } : undefined,
+          base_price: Number(tech.basePrice) || 50,
+          total_earnings: Number(tech.totalEarnings) || 0,
+          created_at: tech.createdAt ?? '',
+          updated_at: tech.updatedAt ?? '',
+          distance: Number.isFinite(distance) ? distance : 0,
+          eta: Number.isFinite(eta) ? eta : 0,
+        };
+      })
+      .filter((t): t is TechnicianWithDistance => t != null);
   } catch (error) {
     console.error('Error fetching available technicians:', error);
     throw error;
