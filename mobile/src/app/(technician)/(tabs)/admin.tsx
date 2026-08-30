@@ -8,6 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Animated, { FadeInUp, FadeInDown, FadeIn } from 'react-native-reanimated';
@@ -224,6 +225,7 @@ export default function AdminScreen() {
   };
 
   return (
+<PhoneColumn>
     <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
       {/* Header */}
       <Animated.View entering={FadeInDown.duration(400)} className="bg-white px-5 pt-4 pb-4 border-b border-gray-100">
@@ -258,16 +260,17 @@ export default function AdminScreen() {
                 }}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: isActive }}
-                className={`flex-row items-center px-4 py-2.5 rounded-full mr-2 ${
+                style={{ marginEnd: 8, gap: 6 }}
+                className={`flex-row items-center px-4 py-2.5 rounded-full ${
                   isActive ? 'bg-blue-500' : 'bg-gray-100'
                 }`}
               >
                 <Icon size={16} color={isActive ? '#fff' : '#6B7280'} />
-                <Text className={`ml-1.5 font-semibold text-sm ${isActive ? 'text-white' : 'text-gray-600'}`}>
+                <Text className={`font-semibold text-sm ${isActive ? 'text-white' : 'text-gray-600'}`}>
                   {t(tab.labelKey as any)}
                 </Text>
                 {count > 0 && (
-                  <View className={`ml-2 px-2 py-0.5 rounded-full ${isActive ? 'bg-white/20' : 'bg-gray-200'}`}>
+                  <View className={`px-2 py-0.5 rounded-full ${isActive ? 'bg-white/20' : 'bg-gray-200'`}>
                     <Text className={`text-xs font-bold ${isActive ? 'text-white' : 'text-gray-600'}`}>
                       {count}
                     </Text>
@@ -444,5 +447,6 @@ export default function AdminScreen() {
         destructive={confirmModal.destructive}
       />
     </SafeAreaView>
+</PhoneColumn>
   );
 }

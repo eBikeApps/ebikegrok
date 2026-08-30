@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import ConfirmModal from "@/components/ConfirmModal";
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -105,6 +106,7 @@ export default function SubmitReview() {
   const ratingLabels = ["", "גרוע", "לא טוב", "בסדר", "טוב", "מעולה"];
 
   return (
+<PhoneColumn>
     <>
     <LinearGradient
       colors={["#f0fdf4", "#dcfce7", "#f9fafb"]}
@@ -320,5 +322,6 @@ export default function SubmitReview() {
       </SafeAreaView>
     </LinearGradient>
     </>
+</PhoneColumn>
   );
 }

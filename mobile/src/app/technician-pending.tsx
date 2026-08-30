@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Clock, RefreshCw } from 'lucide-react-native';
@@ -50,6 +51,7 @@ export default function TechnicianPendingScreen() {
   };
 
   return (
+    <PhoneColumn>
     <LinearGradient colors={['#f0fdf4', '#dcfce7']} style={{ flex: 1 }}>
       <SafeAreaView style={{ flex: 1, justifyContent: 'center', padding: 24 }}>
         <View style={{ alignItems: 'center' }}>
@@ -116,5 +118,6 @@ export default function TechnicianPendingScreen() {
         </View>
       </SafeAreaView>
     </LinearGradient>
+    </PhoneColumn>
   );
 }

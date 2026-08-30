@@ -484,7 +484,7 @@ export default function PaymentRoute() {
   return (
     <RequireAuth>
       <ErrorBoundary>
-        <PaymentScreen />
+<PaymentScreen />
       </ErrorBoundary>
     </RequireAuth>
   );

@@ -1102,7 +1102,7 @@ export default function JobTrackingRoute() {
   return (
     <RequireAuth>
       <ErrorBoundary>
-        <JobTrackingScreen />
+<JobTrackingScreen />
       </ErrorBoundary>
     </RequireAuth>
   );

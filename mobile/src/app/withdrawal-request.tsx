@@ -10,6 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
@@ -111,6 +112,7 @@ export default function WithdrawalRequestScreen() {
 
   if (submitted) {
     return (
+<PhoneColumn>
       <View style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
         <LinearGradient
           colors={['#F0FDF4', '#F8FAFC', '#F8FAFC']}
@@ -161,10 +163,12 @@ export default function WithdrawalRequestScreen() {
           </Animated.View>
         </LinearGradient>
       </View>
+</PhoneColumn>
     );
   }
 
   return (
+<PhoneColumn>
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: '#F8FAFC' }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -451,5 +455,6 @@ export default function WithdrawalRequestScreen() {
         )}
       </View>
     </KeyboardAvoidingView>
+</PhoneColumn>
   );
 }

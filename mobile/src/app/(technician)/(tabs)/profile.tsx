@@ -505,7 +505,7 @@ export default function TechnicianProfileScreen() {
             className="flex-row items-center justify-center py-3"
           >
             <Trash2 size={16} color="#9CA3AF" />
-            <Text className="ml-1.5 text-gray-400 text-sm">
+            <Text className="text-gray-400 text-sm" style={{ marginStart: 6 }}>
               {t('deleteAccount')}
             </Text>
           </Pressable>

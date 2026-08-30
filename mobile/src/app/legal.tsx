@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, ScrollView, Pressable, I18nManager } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useLanguageStore } from '@/lib/store';
@@ -21,6 +22,7 @@ export default function LegalScreen() {
   const BackIcon = I18nManager.isRTL ? ChevronRight : ChevronLeft;
 
   return (
+<PhoneColumn>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.card }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
@@ -33,5 +35,6 @@ export default function LegalScreen() {
         <Text style={{ fontSize: 14, lineHeight: 24, color: colors.textSecondary, textAlign: language === 'he' ? 'right' : 'left' }}>{body}</Text>
       </ScrollView>
     </SafeAreaView>
+</PhoneColumn>
   );
 }

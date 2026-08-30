@@ -11,6 +11,7 @@ import {
   I18nManager,
 } from "react-native";
 import ConfirmModal from "@/components/ConfirmModal";
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { authClient } from "@/lib/auth/auth-client";
@@ -125,6 +126,7 @@ export default function SignUp() {
   };
 
   return (
+<PhoneColumn>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <ImageBackground source={require("@/assets/images/sign-in-bg.jpg")} style={{ flex: 1 }} resizeMode="cover">
         <LinearGradient
@@ -250,6 +252,7 @@ export default function SignUp() {
         onCancel={() => setErrorModal((s) => ({ ...s, visible: false }))}
       />
     </KeyboardAvoidingView>
+</PhoneColumn>
   );
 }
 

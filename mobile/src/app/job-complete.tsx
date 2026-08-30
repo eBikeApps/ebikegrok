@@ -25,6 +25,7 @@ import { markActiveJobFlowFinished, shouldSkipCompletionScreen } from '@/lib/com
 import { clearCustomerActiveJobState, fetchJobById } from '@/lib/active-job-sync';
 import { formatJobReference } from '@/lib/job-reference';
 import { RequireAuth } from '@/components/RequireAuth';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { firstSearchParam, safeHttpUri } from '@/lib/geo';
 
@@ -745,7 +746,9 @@ export default function JobCompleteRoute() {
   return (
     <RequireAuth>
       <ErrorBoundary>
+<PhoneColumn>
         <JobCompleteScreen />
+</PhoneColumn>
       </ErrorBoundary>
     </RequireAuth>
   );

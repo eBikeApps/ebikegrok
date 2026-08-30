@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, I18nManager, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { X, Star, MapPin, Wrench, Shield, ChevronLeft, ChevronRight } from 'lucide-react-native';
@@ -96,6 +97,7 @@ export default function TechnicianProfileScreen() {
 
   if (isLoading) {
     return (
+<PhoneColumn>
       <SafeAreaView className="flex-1 bg-white">
         <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-100">
           <Pressable
@@ -113,11 +115,13 @@ export default function TechnicianProfileScreen() {
           <ActivityIndicator size="large" color="#3B82F6" />
         </View>
       </SafeAreaView>
+</PhoneColumn>
     );
   }
 
   if (!technician) {
     return (
+<PhoneColumn>
       <SafeAreaView className="flex-1 bg-white">
         <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-100">
           <Pressable
@@ -135,10 +139,12 @@ export default function TechnicianProfileScreen() {
           <Text className="text-gray-500">{language === 'he' ? 'טכנאי לא נמצא' : 'Technician not found'}</Text>
         </View>
       </SafeAreaView>
+</PhoneColumn>
     );
   }
 
   return (
+<PhoneColumn>
     <SafeAreaView className="flex-1 bg-white">
       {/* Header */}
       <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -173,7 +179,7 @@ export default function TechnicianProfileScreen() {
           {technician.verification_status === 'verified' && (
             <View className="flex-row items-center mt-2 bg-green-100 px-3 py-1 rounded-full">
               <Shield size={14} color="#10B981" />
-              <Text className="ml-1 text-green-700 font-medium text-sm">
+              <Text className="text-green-700 font-medium text-sm" style={{ marginStart: 4 }}>
                 {t('verified')} ✓
               </Text>
             </View>
@@ -182,10 +188,10 @@ export default function TechnicianProfileScreen() {
           {/* Rating Summary */}
           <View className="flex-row items-center mt-4">
             <Star size={24} color="#F59E0B" fill="#F59E0B" />
-            <Text className="ml-2 text-2xl font-bold text-gray-900">
+            <Text className="text-2xl font-bold text-gray-900" style={{ marginStart: 8 }}>
               {technician.rating}
             </Text>
-            <Text className="ml-2 text-gray-500">
+            <Text className="text-gray-500" style={{ marginStart: 8 }}>
               ({technician.total_reviews} {t('reviews')})
             </Text>
           </View>
@@ -213,7 +219,7 @@ export default function TechnicianProfileScreen() {
               <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center">
                 <Wrench size={20} color="#3B82F6" />
               </View>
-              <View className="ml-3">
+              <View style={{ marginStart: 12 }}>
                 <Text className="text-gray-500 text-sm">{t('vehicleType')}</Text>
                 <Text className="text-gray-900 font-medium">{technician.vehicle_type}</Text>
               </View>
@@ -223,7 +229,7 @@ export default function TechnicianProfileScreen() {
               <View className="w-10 h-10 bg-green-100 rounded-full items-center justify-center">
                 <MapPin size={20} color="#10B981" />
               </View>
-              <View className="ml-3">
+              <View style={{ marginStart: 12 }}>
                 <Text className="text-gray-500 text-sm">{t('serviceRadius')}</Text>
                 <Text className="text-gray-900 font-medium">
                   {technician.service_radius} {language === 'he' ? 'ק״מ' : 'km'}
@@ -235,7 +241,7 @@ export default function TechnicianProfileScreen() {
               <View className="w-10 h-10 bg-purple-100 rounded-full items-center justify-center">
                 <Text className="text-purple-600 font-bold">₪</Text>
               </View>
-              <View className="ml-3">
+              <View style={{ marginStart: 12 }}>
                 <Text className="text-gray-500 text-sm">{t('basePrice')}</Text>
                 <Text className="text-gray-900 font-medium">₪{technician.base_price}</Text>
               </View>
@@ -329,5 +335,6 @@ export default function TechnicianProfileScreen() {
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
+</PhoneColumn>
   );
 }

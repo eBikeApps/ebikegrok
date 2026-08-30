@@ -406,7 +406,7 @@ export default function ProfileScreen() {
             className="bg-white rounded-2xl p-4 flex-row items-center justify-center shadow-sm shadow-black/5 active:bg-red-50"
           >
             <LogOut size={20} color="#EF4444" />
-            <Text className="ml-2 text-red-500 font-semibold text-base">
+            <Text className="text-red-500 font-semibold text-base" style={{ marginStart: 8 }}>
               {t('signOut')}
             </Text>
           </Pressable>
@@ -425,7 +425,7 @@ export default function ProfileScreen() {
             className="flex-row items-center justify-center py-3"
           >
             <Trash2 size={16} color="#9CA3AF" />
-            <Text className="ml-1.5 text-gray-400 text-sm">
+            <Text className="text-gray-400 text-sm" style={{ marginStart: 6 }}>
               {t('deleteAccount')}
             </Text>
           </Pressable>

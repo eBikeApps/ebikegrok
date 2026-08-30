@@ -5,6 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { ChevronLeft, ChevronRight, MapPin, Trash2, Star } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import ConfirmModal from '@/components/ConfirmModal';
+import { PhoneColumn } from '@/components/PhoneColumn';
 
 import { useLanguageStore, useAppThemeStore } from '@/lib/store';
 import { getThemeColors } from '@/lib/theme-colors';
@@ -52,6 +53,7 @@ export default function SavedAddressesScreen() {
   };
 
   return (
+<PhoneColumn>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
@@ -121,5 +123,6 @@ export default function SavedAddressesScreen() {
         onCancel={() => setDeleteId(null)}
       />
     </SafeAreaView>
+</PhoneColumn>
   );
 }

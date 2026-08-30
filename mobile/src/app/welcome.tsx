@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, Pressable, Dimensions, FlatList, ViewToken } from 'react-native';
+import { View, Text, Pressable, FlatList, ViewToken, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn, useIsTablet, PHONE_COLUMN_WIDTH } from '@/components/PhoneColumn';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInUp } from 'react-native-reanimated';
@@ -11,8 +12,6 @@ import { useLanguageStore } from '@/lib/store';
 import { markWelcomeSeen } from '@/lib/welcome-storage';
 import { useSession } from '@/lib/auth/use-session';
 import { gradients } from '@/lib/brand-colors';
-
-const { width } = Dimensions.get('window');
 
 type Slide = {
   key: string;
@@ -50,6 +49,9 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const t = useLanguageStore((s) => s.t);
   const { data: session } = useSession();
+  const { width: windowWidth } = useWindowDimensions();
+  const isTablet = useIsTablet();
+  const slideWidth = isTablet ? PHONE_COLUMN_WIDTH : windowWidth;
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<Slide>>(null);
 
@@ -90,6 +92,7 @@ export default function WelcomeScreen() {
   const isLastSlide = SLIDES[index]?.key === 'pay';
 
   return (
+<PhoneColumn>
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <View style={{ flex: 1 }}>
         <Pressable
@@ -111,7 +114,7 @@ export default function WelcomeScreen() {
           renderItem={({ item, index: slideIndex }) => {
             const Icon = item.icon;
             return (
-              <View style={{ width, flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+              <View style={{ width: slideWidth, flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
                 <Animated.View
                   entering={FadeInUp.delay(slideIndex * 80).duration(400)}
                   style={{ alignItems: 'center', alignSelf: 'center', width: '100%' }}
@@ -188,5 +191,6 @@ export default function WelcomeScreen() {
         </Pressable>
       </View>
     </SafeAreaView>
+</PhoneColumn>
   );
 }

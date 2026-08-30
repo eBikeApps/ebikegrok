@@ -11,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import ConfirmModal from "@/components/ConfirmModal";
+import { PhoneColumn } from '@/components/PhoneColumn';
 import Svg, { Path } from "react-native-svg";
 import { FontAwesome } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -357,6 +358,7 @@ export default function SignIn() {
   };
 
   return (
+<PhoneColumn>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
     <ImageBackground
       source={require("@/assets/images/sign-in-bg.jpg")}
@@ -545,5 +547,6 @@ export default function SignIn() {
         onCancel={() => setErrorModal((s) => ({ ...s, visible: false }))}
       />
     </KeyboardAvoidingView>
+</PhoneColumn>
   );
 }

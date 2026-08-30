@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Animated, { FadeInUp } from 'react-native-reanimated';
@@ -78,6 +79,7 @@ export default function InvitationsScreen() {
   const invitations = data?.invitations ?? [];
 
   return (
+<PhoneColumn>
     <View style={{ flex: 1, backgroundColor: '#0F0F14' }}>
       <SafeAreaView edges={['top']} style={{ flex: 1 }}>
         {/* Header */}
@@ -278,5 +280,6 @@ export default function InvitationsScreen() {
         </ScrollView>
       </SafeAreaView>
     </View>
+</PhoneColumn>
   );
 }

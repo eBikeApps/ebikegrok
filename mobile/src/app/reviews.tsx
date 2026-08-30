@@ -9,6 +9,7 @@ import {
   I18nManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -96,6 +97,7 @@ export default function ReviewsScreen() {
   };
 
   return (
+<PhoneColumn>
     <View style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
       <LinearGradient
         colors={['#ECFDF5', '#F0FDF4', '#F8FAFC']}
@@ -326,5 +328,6 @@ export default function ReviewsScreen() {
         </ScrollView>
       )}
     </View>
+</PhoneColumn>
   );
 }

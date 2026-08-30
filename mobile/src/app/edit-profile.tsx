@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, ActivityIndicator, I18nManager } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -50,6 +51,7 @@ export default function EditProfileScreen() {
   const BackIcon = I18nManager.isRTL ? ChevronRight : ChevronLeft;
 
   return (
+<PhoneColumn>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
@@ -101,5 +103,6 @@ export default function EditProfileScreen() {
         </Pressable>
       </View>
     </SafeAreaView>
+</PhoneColumn>
   );
 }

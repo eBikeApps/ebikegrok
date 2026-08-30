@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, I18nManager, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Star, MapPin, Calendar, Wrench, Bike } from 'lucide-react-native';
@@ -59,20 +60,24 @@ export default function OrderDetailsScreen() {
 
   if (loading) {
     return (
+<PhoneColumn>
       <SafeAreaView className="flex-1 bg-gray-50 items-center justify-center" edges={['top']}>
         <ActivityIndicator size="large" color="#3B82F6" />
       </SafeAreaView>
+</PhoneColumn>
     );
   }
 
   if (notFound || !order) {
     return (
+<PhoneColumn>
       <SafeAreaView className="flex-1 bg-gray-50 items-center justify-center" edges={['top']}>
         <Text className="text-gray-500 text-lg">{language === 'he' ? 'ההזמנה לא נמצאה' : 'Order not found'}</Text>
         <Pressable onPress={() => router.back()} className="mt-4 px-6 py-3 bg-blue-500 rounded-xl">
           <Text className="text-white font-semibold">{language === 'he' ? 'חזרה' : 'Go back'}</Text>
         </Pressable>
       </SafeAreaView>
+</PhoneColumn>
     );
   }
 
@@ -80,6 +85,7 @@ export default function OrderDetailsScreen() {
   const displayPrice = order.final_price ?? order.estimated_price_min;
 
   return (
+    <PhoneColumn>
     <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
       {/* Header */}
       <View className="flex-row items-center px-4 py-4 bg-white border-b border-gray-100">
@@ -284,5 +290,6 @@ export default function OrderDetailsScreen() {
 
       </ScrollView>
     </SafeAreaView>
+    </PhoneColumn>
   );
 }

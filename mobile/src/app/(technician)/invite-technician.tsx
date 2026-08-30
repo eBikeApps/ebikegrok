@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ChevronLeft, ChevronRight, UserPlus } from 'lucide-react-native';
@@ -67,6 +68,7 @@ export default function InviteTechnicianScreen() {
 
   if (sent) {
     return (
+<PhoneColumn>
       <View style={{ flex: 1, backgroundColor: '#0F172A', paddingTop: insets.top + 24, paddingHorizontal: 24 }}>
         <Text style={{ color: '#F8FAFC', fontSize: 24, fontWeight: '800', textAlign: 'center', marginTop: 80 }}>
           ההזמנה נשלחה
@@ -83,10 +85,12 @@ export default function InviteTechnicianScreen() {
           </LinearGradient>
         </Pressable>
       </View>
+</PhoneColumn>
     );
   }
 
   return (
+    <PhoneColumn>
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <Pressable onPress={() => router.back()} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}>
@@ -143,5 +147,6 @@ export default function InviteTechnicianScreen() {
         </ScrollView>
       )}
     </View>
+    </PhoneColumn>
   );
 }
