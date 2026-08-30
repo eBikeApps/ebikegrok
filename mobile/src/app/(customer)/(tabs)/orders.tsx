@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, Pressable, ScrollView, I18nManager, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
@@ -201,6 +202,7 @@ export default function OrdersScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+      <PhoneColumn>
       {/* Header */}
       <View className="px-4 py-4 bg-white border-b border-gray-100">
         <Text className="text-2xl font-bold text-gray-900">{t('orders')}</Text>
@@ -375,6 +377,7 @@ export default function OrdersScreen() {
           })
         )}
       </ScrollView>
+    </PhoneColumn>
     </SafeAreaView>
   );
 }

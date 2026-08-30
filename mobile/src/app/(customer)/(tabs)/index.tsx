@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, Pressable, ActivityIndicator, Linking, StyleSheet, Platform } from 'react-native';
+import { phoneColumnStyle, useIsTablet } from '@/components/PhoneColumn';
 import ConfirmModal from '@/components/ConfirmModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -484,6 +485,7 @@ function ActiveJobHeroCard({
 export default function CustomerHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isTablet = useIsTablet();
   const t = useLanguageStore((s) => s.t);
   const { data: session } = useSession();
   const user = session?.user;
@@ -787,9 +789,11 @@ export default function CustomerHomeScreen() {
           style={{
             position: 'absolute',
             top: insets.top + 10,
-            left: 14,
-            right: 14,
+            left: 0,
+            right: 0,
             zIndex: 20,
+            ...phoneColumnStyle(isTablet),
+            paddingHorizontal: 14,
             borderRadius: 22,
             overflow: 'hidden',
             shadowColor: '#0F172A',
@@ -906,7 +910,7 @@ export default function CustomerHomeScreen() {
             style={{
               position: 'absolute',
               top: insets.top + 86,
-              right: 16,
+              end: 16,
               width: 48,
               height: 48,
               backgroundColor: 'rgba(255,255,255,0.92)',
@@ -928,7 +932,7 @@ export default function CustomerHomeScreen() {
 
         {/* Selected Technician Card */}
         {selectedTechnician && (
-          <Animated.View entering={FadeInUp.duration(300)} style={{ position: 'absolute', bottom: 128, left: 16, right: 16 }}>
+          <Animated.View entering={FadeInUp.duration(300)} style={{ position: 'absolute', bottom: 128, left: 0, right: 0, paddingHorizontal: 16, ...phoneColumnStyle(isTablet) }}>
             <Pressable
               onPress={handleViewProfile}
               style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4, flexDirection: 'row', alignItems: 'center' }}
@@ -974,7 +978,7 @@ export default function CustomerHomeScreen() {
         {activeJob ? (
           <ActiveJobHeroCard job={activeJob} onPress={handleGoToActiveJob} t={t} />
         ) : (
-          <View style={{ position: 'absolute', bottom: 32, left: 24, right: 24 }}>
+          <View style={{ position: 'absolute', bottom: 32, left: 0, right: 0, paddingHorizontal: 24, ...phoneColumnStyle(isTablet) }}>
             <RequestRepairGlowButton
               onPress={handleRequestRepair}
               label={t('requestRepairNow')}
@@ -990,9 +994,13 @@ const styles = StyleSheet.create({
   activeJobWrap: {
     position: 'absolute',
     bottom: 28,
-    left: 20,
-    right: 20,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
     alignItems: 'center',
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 390,
   },
   activeJobCard: {
     width: '100%',

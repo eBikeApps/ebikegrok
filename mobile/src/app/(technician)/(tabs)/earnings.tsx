@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { DollarSign, TrendingUp, ArrowDownRight, ArrowUpRight, Wallet, Briefcase, Star, ArrowUpCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -131,6 +132,7 @@ export default function TechnicianEarningsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }} edges={['top']}>
+      <PhoneColumn>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 40 }}
@@ -370,6 +372,7 @@ export default function TechnicianEarningsScreen() {
           </View>
         </Animated.View>
       </ScrollView>
+    </PhoneColumn>
     </SafeAreaView>
   );
 }

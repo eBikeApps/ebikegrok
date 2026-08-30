@@ -22,6 +22,7 @@ import * as Haptics from 'expo-haptics';
 import { authClient } from '@/lib/auth/auth-client';
 import { useSession } from '@/lib/auth/use-session';
 import { firstSearchParam, safeImageSource } from '@/lib/geo';
+import { PhoneColumn } from '@/components/PhoneColumn';
 
 interface ChatMessage {
   id: string;
@@ -191,6 +192,7 @@ export default function ChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
+      <PhoneColumn>
       {/* Header */}
       <LinearGradient
         colors={['#111827', '#0F172A']}
@@ -291,6 +293,7 @@ export default function ChatScreen() {
           </LinearGradient>
         </Pressable>
       </View>
+    </PhoneColumn>
     </KeyboardAvoidingView>
   );
 }
@@ -382,7 +385,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bubble: {
-    maxWidth: '80%',
+    maxWidth: 280,
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: 18,
@@ -395,10 +398,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.07)',
   },
-  myBubbleFirst: { borderTopRightRadius: 4 },
-  myBubbleLast: { borderBottomRightRadius: 4 },
-  theirBubbleFirst: { borderTopLeftRadius: 4 },
-  theirBubbleLast: { borderBottomLeftRadius: 4 },
+  myBubbleFirst: { borderTopEndRadius: 4 },
+  myBubbleLast: { borderBottomEndRadius: 4 },
+  theirBubbleFirst: { borderTopStartRadius: 4 },
+  theirBubbleLast: { borderBottomStartRadius: 4 },
   bubbleText: {
     color: '#CBD5E1',
     fontSize: 15,

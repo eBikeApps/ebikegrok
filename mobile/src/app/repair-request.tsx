@@ -16,6 +16,7 @@ import ConfirmModal from '@/components/ConfirmModal';
 import { RequireAuth } from '@/components/RequireAuth';
 import { WizardProgress } from '@/components/WizardProgress';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -1112,6 +1113,7 @@ function RepairRequestScreen() {
 
   return (
     <SafeAreaView style={rrStyles.screen} edges={['top', 'bottom']}>
+      <PhoneColumn>
       {/* Glass header — home-screen language */}
       <View style={rrStyles.headerWrap}>
         <View style={rrStyles.headerCard}>
@@ -1426,6 +1428,7 @@ function RepairRequestScreen() {
           />
         </SafeAreaView>
       </Modal>
+    </PhoneColumn>
     </SafeAreaView>
   );
 }

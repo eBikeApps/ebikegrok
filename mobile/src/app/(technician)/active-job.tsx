@@ -49,6 +49,8 @@ import { authClient } from '@/lib/auth/auth-client';
 import { Job, JobStatus, JobPart } from '@/lib/types';
 import { dialPhoneNumber, openWhatsAppChat } from '@/lib/phone';
 import { formatJobReference } from '@/lib/job-reference';
+import { canMountGoogleMap, pickLatLng, toLatLng, safeHttpUri } from '@/lib/geo';
+import { phoneColumnStyle, useIsTablet } from '@/components/PhoneColumn';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,13 +79,13 @@ const mapApiJob = (j: any): Job => ({
   estimated_price_min: j.estimatedPriceMin,
   estimated_price_max: j.estimatedPriceMax,
   customer_location: {
-    latitude: j.customerLocationLat,
-    longitude: j.customerLocationLng,
+    ...(toLatLng(j.customerLocationLat, j.customerLocationLng) ?? {
+      latitude: 0,
+      longitude: 0,
+    }),
     address: j.customerAddress || undefined,
   },
-  technician_location: j.technicianLocationLat
-    ? { latitude: j.technicianLocationLat, longitude: j.technicianLocationLng }
-    : undefined,
+  technician_location: toLatLng(j.technicianLocationLat, j.technicianLocationLng) ?? undefined,
   final_price: j.finalPrice ?? undefined,
   payment_status: j.paymentStatus ?? 'pending',
   created_at: j.createdAt,
@@ -155,6 +157,7 @@ function PulseDot({ color = '#22C55E' }: { color?: string }) {
 
 function CancelledScreen({ onBack }: { onBack: () => void }) {
   const insets = useSafeAreaInsets();
+  const isTablet = useIsTablet();
   const scale = useSharedValue(0.5);
   const opacity = useSharedValue(0);
 
@@ -572,7 +575,7 @@ export default function TechnicianActiveJobScreen() {
 
   const handleWhatsAppCustomer = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const jobRef = formatJobReference(job?.job_number) || `#${job?.id.slice(-4)}`;
+    const jobRef = formatJobReference(job?.job_number) || (job?.id ? `#${job.id.slice(-4)}` : "");
     const isHe = language === 'he';
     const message = isHe
       ? `שלום ${job?.customer?.name ?? ''}, אני הטכנאי שלך מהזמנה ${jobRef}.`
@@ -798,31 +801,46 @@ export default function TechnicianActiveJobScreen() {
   const isCompleted = job.status === 'completed';
   const canContactCustomer =
     job.payment_status === 'paid' && CONTACT_VISIBLE_STATUSES.includes(job.status);
+  const mapCustomerLocation = pickLatLng(job.customer_location);
+  const customerAvatarUri = safeHttpUri(job.customer?.avatar_url);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       {/* ── Map ── */}
       <View style={{ height: '50%' }}>
+        {mapCustomerLocation && canMountGoogleMap() ? (
         <MapView
           style={{ flex: 1 }}
           provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
           initialRegion={{
-            latitude: job.customer_location.latitude,
-            longitude: job.customer_location.longitude,
+            latitude: mapCustomerLocation.latitude,
+            longitude: mapCustomerLocation.longitude,
             latitudeDelta: 0.014,
             longitudeDelta: 0.014,
           }}
           showsCompass={false}
         >
-          <Marker coordinate={job.customer_location}>
+          <Marker coordinate={mapCustomerLocation}>
             <View style={styles.mapMarker}>
+              {customerAvatarUri ? (
               <Image
-                source={{ uri: job.customer?.avatar_url || undefined }}
+                source={{ uri: customerAvatarUri }}
                 style={{ width: 44, height: 44, borderRadius: 22 }}
               />
+              ) : (
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }}>
+                  <MapPin size={20} color="#94A3B8" />
+                </View>
+              )}
             </View>
           </Marker>
         </MapView>
+        ) : (
+          <View style={{ flex: 1, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center' }}>
+            <MapPin size={28} color="#64748B" />
+            <Text style={{ color: '#64748B', marginTop: 8, fontSize: 13 }}>אין מיקום תקין למפה</Text>
+          </View>
+        )}
 
         {/* Back button */}
         <Pressable
@@ -835,7 +853,7 @@ export default function TechnicianActiveJobScreen() {
         {/* Status badge */}
         <Animated.View
           entering={FadeIn.duration(400)}
-          style={[styles.statusBadge, { bottom: 24, left: 16, right: 16 }]}
+          style={[styles.statusBadge, { bottom: 24, left: 0, right: 0, paddingHorizontal: 16, ...phoneColumnStyle(isTablet) }]}
         >
           <LinearGradient
             colors={['rgba(255,255,255,0.97)', 'rgba(248,250,252,0.95)']}
@@ -853,7 +871,7 @@ export default function TechnicianActiveJobScreen() {
             </View>
             <View style={[styles.jobIdBadge, { backgroundColor: isCompleted ? '#DCFCE7' : '#EFF6FF' }]}>
               <Text style={[styles.jobIdText, { color: isCompleted ? '#16A34A' : '#3B82F6' }]}>
-                {formatJobReference(job.job_number) || `#${job.id.slice(-4)}`}
+                {formatJobReference(job.job_number) || (job.id ? `#${job.id.slice(-4)}` : "")}
               </Text>
             </View>
           </LinearGradient>
@@ -868,8 +886,8 @@ export default function TechnicianActiveJobScreen() {
         {/* Customer Card */}
         <View style={styles.customerCard}>
           <View style={styles.avatarWrap}>
-            {job.customer?.avatar_url ? (
-              <Image source={{ uri: job.customer.avatar_url }} style={styles.avatar} />
+            {customerAvatarUri ? (
+              <Image source={{ uri: customerAvatarUri }} style={styles.avatar} />
             ) : (
               <LinearGradient colors={['#1D4ED8', '#1E40AF']} style={[styles.avatar, { alignItems: 'center', justifyContent: 'center' }]}>
                 <Text style={{ color: '#fff', fontSize: 22, fontWeight: '700' }}>
@@ -953,11 +971,11 @@ export default function TechnicianActiveJobScreen() {
           )}
 
           {/* Customer photo */}
-          {job.photo_url ? (
+          {safeHttpUri(job.photo_url) ? (
             <Animated.View entering={FadeInUp.delay(100).duration(400)} style={styles.photoCard}>
               <Text style={styles.photoLabel}>תמונה מהלקוח</Text>
               <Image
-                source={{ uri: job.photo_url }}
+                source={{ uri: safeHttpUri(job.photo_url) }}
                 style={styles.photoImage}
                 contentFit="cover"
               />
@@ -1384,7 +1402,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35, shadowRadius: 10, elevation: 8,
   },
   backBtn: {
-    position: 'absolute', left: 16,
+    position: 'absolute', start: 16,
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: 'rgba(15,23,42,0.65)',
     alignItems: 'center', justifyContent: 'center',
@@ -1408,6 +1426,9 @@ const styles = StyleSheet.create({
   // Sheet
   sheet: {
     flex: 1,
+    width: '100%',
+    maxWidth: 390,
+    alignSelf: 'center',
     backgroundColor: '#111827',
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     marginTop: -24,

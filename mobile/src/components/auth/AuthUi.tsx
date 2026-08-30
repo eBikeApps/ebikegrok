@@ -19,6 +19,7 @@ import Animated, {
 import * as Haptics from "expo-haptics";
 
 const { width } = Dimensions.get("window");
+const phoneWidth = Math.min(width, 390);
 
 export function EBikeLogo() {
   const scaleValue = useSharedValue(0.5);
@@ -27,7 +28,7 @@ export function EBikeLogo() {
   const glowIntensity = useSharedValue(0.2);
   const rotateValue = useSharedValue(-4);
 
-  const LOGO_WIDTH = width * 0.64 * 1.5 * 1.3 * 0.92;
+  const LOGO_WIDTH = phoneWidth * 0.64 * 1.5 * 1.3 * 0.92;
   const LOGO_HEIGHT = LOGO_WIDTH * 0.75;
 
   useEffect(() => {

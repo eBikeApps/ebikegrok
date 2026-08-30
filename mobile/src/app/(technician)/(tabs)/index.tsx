@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, Pressable, Switch, ScrollView, RefreshControl, ActivityIndicator, AppState, AppStateStatus } from 'react-native';
+import { View, Text, Pressable, Switch, ScrollView, RefreshControl, ActivityIndicator, AppState, AppStateStatus, useWindowDimensions } from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -18,6 +18,7 @@ import { useSession } from '@/lib/auth/use-session';
 import { registerForPushNotifications } from '@/lib/push-notifications';
 import { playSystemSound } from '@/lib/system-sounds';
 import { formatJobReference } from '@/lib/job-reference';
+import { safeHttpUri } from '@/lib/geo';
 import { dialPhoneNumber, openWhatsAppChat } from '@/lib/phone';
 import {
   pingHeartbeat,
@@ -31,6 +32,8 @@ import { reassertTechnicianAvailability } from '@/lib/technician-availability-sy
 export default function TechnicianDashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const isTablet = Math.min(width, height) >= 600;
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
 
@@ -232,19 +235,35 @@ export default function TechnicianDashboardScreen() {
     const recoverActiveJob = async () => {
       try {
         const token = session.session?.token;
-        if (!token) return;
+        const userId = session.user?.id;
+        if (!token || !userId) return;
         const res = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/jobs`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) return;
         const data = await res.json();
-        const activeStatuses = ['accepted', 'on_way', 'arrived', 'in_progress'];
-        const activeJob = (data.jobs || []).find(
-          (j: any) => activeStatuses.includes(j.status) && j.technicianId === session.user?.id
+        const inflightStatuses = ['on_way', 'arrived', 'in_progress'];
+        // List includes history + unassigned pending. Do not auto-open leftover
+        // accepted+unpaid jobs (the stale "old job" on technician login).
+        // Restore only in-flight work, or accepted after the customer paid.
+        const isRestorable = (j: any) => {
+          if (!j?.id || j.technicianId !== userId) return false;
+          if (inflightStatuses.includes(j.status)) return true;
+          return j.status === 'accepted' && j.paymentStatus === 'paid';
+        };
+        const candidate = (data.jobs || []).find(isRestorable);
+        if (!candidate) return;
+
+        const freshRes = await fetch(
+          `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/jobs/${candidate.id}`,
+          { headers: { Authorization: `Bearer ${token}` } }
         );
-        if (activeJob) {
-          router.push({ pathname: '/(technician)/active-job', params: { id: activeJob.id } });
-        }
+        if (!freshRes.ok) return;
+        const freshData = await freshRes.json();
+        const fresh = freshData?.job;
+        if (!isRestorable(fresh)) return;
+
+        router.push({ pathname: '/(technician)/active-job', params: { id: fresh.id } });
       } catch { /* silent */ }
     };
     recoverActiveJob();
@@ -411,26 +430,90 @@ export default function TechnicianDashboardScreen() {
   };
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View style={{ flex: 1, width: '100%', backgroundColor: '#F9FAFB' }}>
       {/* Header */}
-      <View style={{ paddingTop: insets.top }} className="bg-white border-b border-gray-100">
-        <View className="px-4 py-4">
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center">
+      <View style={{ paddingTop: insets.top, width: '100%', alignSelf: 'stretch' }} className="bg-white border-b border-gray-100">
+        <View className="px-4 py-4" style={{ width: '100%', maxWidth: isTablet ? 390 : undefined, alignSelf: 'center' }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              width: '100%',
+            }}
+          >
+            <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' }}>
               <Image
                 source={{ uri: displayAvatar }}
                 style={{ width: 48, height: 48, borderRadius: 24 }}
                 contentFit="cover"
               />
-              <View className="ml-3">
-                <Text className="text-gray-900 font-bold text-lg">{displayName}</Text>
+              <View style={{ marginStart: isTablet ? 12 : undefined }} className={isTablet ? '' : 'ml-3'}>
+                <Text className="text-gray-900 font-bold text-lg" numberOfLines={1} >
+                  {displayName}
+                </Text>
                 <View className="flex-row items-center">
                   <Star size={14} color="#F59E0B" fill="#F59E0B" />
-                  <Text className="text-gray-600 text-sm ml-1">{stats.rating}</Text>
+                  <Text className={isTablet ? 'text-gray-600 text-sm' : 'text-gray-600 text-sm ml-1'} style={isTablet ? { marginStart: 4 } : undefined}>{stats.rating}</Text>
                 </View>
               </View>
             </View>
-            <View className="items-center">
+            {!isTablet && (
+              <View className="items-center" style={{ flexShrink: 0 }}>
+                <Switch
+                  value={isAvailable}
+                  onValueChange={handleToggleAvailability}
+                  trackColor={{ false: '#FCA5A5', true: '#86EFAC' }}
+                  thumbColor={isAvailable ? '#10B981' : '#EF4444'}
+                  style={{ transform: [{ scaleX: 1.4 }, { scaleY: 1.4 }] }}
+                />
+                <Text className={cn('text-sm font-bold mt-1', isAvailable ? 'text-green-600' : 'text-red-500')}>
+                  {isAvailable ? t('available') : t('unavailable')}
+                </Text>
+              </View>
+            )}
+          </View>
+          {isTablet && (
+          <Pressable
+            onPress={() => handleToggleAvailability(!isAvailable)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: isAvailable }}
+            accessibilityLabel={isAvailable ? t('available') : t('unavailable')}
+            style={{
+              marginTop: 14,
+              width: '100%',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: isAvailable ? '#ECFDF5' : '#FEF2F2',
+              borderRadius: 16,
+              paddingVertical: 12,
+              paddingHorizontal: 14,
+              minHeight: 56,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, marginEnd: 12 }}>
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: isAvailable ? '#D1FAE5' : '#FEE2E2',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginEnd: 12,
+                }}
+              >
+                <Wrench size={20} color={isAvailable ? '#10B981' : '#EF4444'} />
+              </View>
+              <Text
+                className={cn('text-base font-bold', isAvailable ? 'text-green-700' : 'text-red-600')}
+                numberOfLines={1}
+                style={{ flex: 1 }}
+              >
+                {isAvailable ? t('available') : t('unavailable')}
+              </Text>
+            </View>
+            <View style={{ width: 72, minWidth: 72, alignItems: 'flex-end', justifyContent: 'center', flexShrink: 0 }}>
               <Switch
                 value={isAvailable}
                 onValueChange={handleToggleAvailability}
@@ -438,20 +521,19 @@ export default function TechnicianDashboardScreen() {
                 thumbColor={isAvailable ? '#10B981' : '#EF4444'}
                 style={{ transform: [{ scaleX: 1.4 }, { scaleY: 1.4 }] }}
               />
-              <Text className={cn('text-sm font-bold mt-1', isAvailable ? 'text-green-600' : 'text-red-500')}>
-                {isAvailable ? t('available') : t('unavailable')}
-              </Text>
             </View>
-          </View>
+          </Pressable>
+          )}
           {isAvailable && (
             <Animated.View entering={FadeIn.duration(200)} className="mt-3 bg-green-50 rounded-xl px-4 py-2 flex-row items-center">
               <MapPin size={16} color="#10B981" />
-              <Text className="text-green-700 text-sm ml-2">{t('locationActive')}</Text>
+              <Text className={isTablet ? "text-green-700 text-sm" : "text-green-700 text-sm ml-2"} style={isTablet ? { marginStart: 8 } : undefined}>{t('locationActive')}</Text>
             </Animated.View>
           )}
         </View>
       </View>
 
+      <View style={{ flex: 1, width: '100%', maxWidth: isTablet ? 390 : undefined, alignSelf: 'center' }}>
       {/* New Order Banner Notification */}
       {newOrderBanner && (
         <Animated.View
@@ -459,7 +541,7 @@ export default function TechnicianDashboardScreen() {
           exiting={SlideOutUp.duration(250)}
           style={{
             position: 'absolute',
-            top: insets.top + 80,
+            top: 8,
             left: 16,
             right: 16,
             zIndex: 100,
@@ -488,7 +570,7 @@ export default function TechnicianDashboardScreen() {
                 backgroundColor: '#FF9F0A',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginLeft: 12,
+                marginEnd: 12,
               }}
             >
               <Bell size={18} color="#fff" />
@@ -508,6 +590,8 @@ export default function TechnicianDashboardScreen() {
 
       <ScrollView
         className="flex-1"
+        style={{ width: '100%' }}
+        contentContainerStyle={{ width: '100%', flexGrow: 1 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -524,22 +608,22 @@ export default function TechnicianDashboardScreen() {
               <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center mb-2">
                 <Briefcase size={20} color="#3B82F6" />
               </View>
-              <Text className="text-2xl font-bold text-gray-900">{stats.todaysJobs}</Text>
-              <Text className="text-gray-500 text-sm">{t('todaysJobs')}</Text>
+              <Text className="text-2xl font-bold text-gray-900" >{stats.todaysJobs}</Text>
+              <Text className="text-gray-500 text-sm" >{t('todaysJobs')}</Text>
             </View>
             <View className="flex-1 bg-white rounded-2xl p-4 shadow-sm shadow-black/5">
               <View className="w-10 h-10 bg-green-100 rounded-full items-center justify-center mb-2">
                 <DollarSign size={20} color="#10B981" />
               </View>
-              <Text className="text-2xl font-bold text-gray-900">₪{stats.todaysEarnings}</Text>
-              <Text className="text-gray-500 text-sm">{t('todaysEarnings')}</Text>
+              <Text className="text-2xl font-bold text-gray-900" >₪{stats.todaysEarnings}</Text>
+              <Text className="text-gray-500 text-sm" >{t('todaysEarnings')}</Text>
             </View>
             <View className="flex-1 bg-white rounded-2xl p-4 shadow-sm shadow-black/5">
               <View className="w-10 h-10 bg-yellow-100 rounded-full items-center justify-center mb-2">
                 <Star size={20} color="#F59E0B" />
               </View>
-              <Text className="text-2xl font-bold text-gray-900">{stats.rating}</Text>
-              <Text className="text-gray-500 text-sm">{t('rating')}</Text>
+              <Text className="text-2xl font-bold text-gray-900" >{stats.rating}</Text>
+              <Text className="text-gray-500 text-sm" >{t('rating')}</Text>
             </View>
           </View>
         </Animated.View>
@@ -547,7 +631,7 @@ export default function TechnicianDashboardScreen() {
         {/* Pending Orders Section */}
         <Animated.View entering={FadeInUp.delay(200).duration(400)} className="px-4 pt-5 pb-8">
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-gray-900 font-bold text-lg">
+            <Text className="text-gray-900 font-bold text-lg" >
               {t('newOrders')}
               {pendingJobs.length > 0 && (
                 <Text className="text-blue-500"> ({pendingJobs.length})</Text>
@@ -560,7 +644,7 @@ export default function TechnicianDashboardScreen() {
               className="flex-row items-center bg-blue-50 px-3 py-1.5 rounded-full active:opacity-70"
             >
               <RefreshCw size={14} color="#3B82F6" />
-              <Text className="text-blue-600 text-sm font-medium mr-1.5">{t('refresh')}</Text>
+              <Text className="text-blue-600 text-sm font-medium" style={{ marginStart: 6 }}>{t('refresh')}</Text>
             </Pressable>
           </View>
 
@@ -577,142 +661,136 @@ export default function TechnicianDashboardScreen() {
               <Text className="text-gray-400 text-sm mt-1 text-center">{t('pullToRefresh')}</Text>
             </View>
           ) : (
-            pendingJobs.map((job, index) => (
+            pendingJobs.map((job, index) => {
+              const photoUri = safeHttpUri(job.photo_url);
+              const jobRef = formatJobReference(job.job_number);
+              return (
               <Animated.View
                 key={job.id}
                 entering={FadeInRight.delay(index * 80).duration(350)}
-                className="bg-white rounded-3xl mb-4 overflow-hidden shadow-md shadow-black/10"
+                style={{
+                  backgroundColor: '#fff',
+                  borderRadius: 20,
+                  marginBottom: 14,
+                  overflow: 'hidden',
+                  borderWidth: 1,
+                  borderColor: '#F3F4F6',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 8,
+                  elevation: 3,
+                }}
               >
-                {/* Top accent */}
-                <View style={{ height: 4, backgroundColor: '#10B981' }} />
-
-                <View className="p-5">
-                  {/* Customer row */}
-                  <View className="flex-row items-center justify-between mb-4">
-                    <View className="flex-row items-center">
-                      {job.customer?.avatar_url ? (
-                        <Image
-                          source={{ uri: job.customer.avatar_url }}
-                          style={{ width: 52, height: 52, borderRadius: 26 }}
-                          contentFit="cover"
-                        />
-                      ) : (
-                        <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontSize: 22 }}>👤</Text>
-                        </View>
-                      )}
-                      <View className="mr-3">
-                        <Text className="text-gray-900 font-bold text-lg">{job.customer?.name ?? 'לקוח'}</Text>
-                        <View className="flex-row items-center gap-2 mt-0.5">
-                          {!!formatJobReference(job.job_number) && (
-                            <Text className="text-blue-600 text-xs font-bold">
-                              {formatJobReference(job.job_number)}
-                            </Text>
-                          )}
-                          <Text className="text-gray-400 text-sm">{formatTime(job.created_at)}</Text>
+                <View style={{ height: 3, backgroundColor: '#10B981' }} />
+                <View style={{ padding: 14 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                    {photoUri ? (
+                      <Image
+                        source={{ uri: photoUri }}
+                        style={{ width: 72, height: 72, borderRadius: 14, backgroundColor: '#ECFDF5' }}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View style={{ width: 72, height: 72, borderRadius: 14, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center' }}>
+                        <Wrench size={22} color="#10B981" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1, minWidth: 0, marginStart: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text numberOfLines={1} style={{ flex: 1, color: '#111827', fontWeight: '800', fontSize: 16 }}>
+                          {job.customer?.name ?? 'לקוח'}
+                        </Text>
+                        <View style={{ backgroundColor: '#ECFDF5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, flexShrink: 0 }}>
+                          <Text style={{ color: '#047857', fontWeight: '800', fontSize: 13 }}>
+                            ₪{job.estimated_price_min}–{job.estimated_price_max}
+                          </Text>
                         </View>
                       </View>
-                    </View>
-                    <View className="bg-emerald-50 px-4 py-2 rounded-2xl border border-emerald-100">
-                      <Text className="text-emerald-700 font-bold text-base">
-                        ₪{job.estimated_price_min}–{job.estimated_price_max}
+                      <Text style={{ color: '#3B82F6', fontWeight: '700', fontSize: 12, marginTop: 3 }}>
+                        {jobRef ? `${jobRef} · ` : ''}{formatTime(job.created_at)}
+                      </Text>
+                      <Text numberOfLines={2} style={{ color: '#4B5563', fontSize: 13, lineHeight: 18, marginTop: 4 }}>
+                        {job.bike_type === 'electric' ? t('electricBikeShort') : t('regularBikeShort')}
+                        {job.description ? ` · ${job.description}` : ''}
                       </Text>
                     </View>
                   </View>
-
-                  {/* Issue row */}
-                  <View className="flex-row items-center bg-gray-50 rounded-2xl px-4 py-3 mb-4">
-                    <View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center ml-3">
-                      <Wrench size={20} color="#F97316" />
-                    </View>
-                    <Text className="text-gray-700 text-base flex-1 leading-5" numberOfLines={2}>
-                      {job.bike_type === 'electric' ? t('electricBikeShort') : t('regularBikeShort')} · {job.description}
-                    </Text>
-                  </View>
-
-                  {/* Customer photo */}
-                  {!!job.photo_url && (
-                    <View className="mb-4 rounded-2xl overflow-hidden" style={{ height: 180 }}>
-                      <Image
-                        source={{ uri: job.photo_url }}
-                        style={{ width: '100%', height: 180 }}
-                        contentFit="cover"
-                      />
+                  {!!job.customer_location?.address && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+                      <MapPin size={13} color="#9CA3AF" />
+                      <Text numberOfLines={1} style={{ flex: 1, marginStart: 6, color: '#6B7280', fontSize: 12 }}>
+                        {job.customer_location.address}
+                      </Text>
                     </View>
                   )}
-
-                  {/* Contact info: phone + address */}
-                  <View className="bg-gray-50 rounded-2xl overflow-hidden mb-4">
-                    {!!job.customer?.phone && (
-                      <View className="flex-row items-center px-4 py-3 border-b border-gray-100">
-                        <Pressable
-                          onPress={() => {
-                            Haptics.selectionAsync();
-                            dialPhoneNumber(job.customer?.phone);
-                          }}
-                          className="flex-row items-center flex-1"
-                        >
-                          <View className="w-8 h-8 bg-blue-100 rounded-full items-center justify-center ml-3">
-                            <Phone size={16} color="#3B82F6" />
-                          </View>
-                          <Text className="text-blue-600 text-base font-medium flex-1" style={{ textAlign: 'left', direction: 'ltr' }}>
-                            {job.customer.phone}
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => {
-                            Haptics.selectionAsync();
-                            openWhatsAppChat(job.customer?.phone);
-                          }}
-                          className="w-9 h-9 bg-green-500 rounded-full items-center justify-center"
-                        >
-                          <MessageCircle size={18} color="#fff" />
-                        </Pressable>
-                      </View>
-                    )}
-                    {!!job.customer_location.address && (
-                      <View className="flex-row items-center px-4 py-3">
-                        <View className="w-8 h-8 bg-red-100 rounded-full items-center justify-center ml-3">
-                          <MapPin size={16} color="#EF4444" />
-                        </View>
-                        <Text className="text-gray-800 text-sm flex-1 leading-5">
-                          {job.customer_location.address}
+                  {!!job.customer?.phone && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 10 }}>
+                      <Pressable
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          dialPhoneNumber(job.customer?.phone);
+                        }}
+                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 }}
+                      >
+                        <Phone size={16} color="#3B82F6" />
+                        <Text numberOfLines={1} style={{ flex: 1, marginStart: 8, color: '#2563EB', fontSize: 14, fontWeight: '600', textAlign: 'left', direction: 'ltr' }}>
+                          {job.customer.phone}
                         </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Accept button — big and prominent */}
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          openWhatsAppChat(job.customer?.phone);
+                        }}
+                        accessibilityLabel="WhatsApp"
+                        accessibilityRole="button"
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: '#25D366',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <MessageCircle size={20} color="#fff" />
+                      </Pressable>
+                    </View>
+                  )}
                   <Pressable
                     onPress={() => handleAcceptJob(job)}
                     disabled={acceptingJobId === job.id}
                     accessibilityLabel={t('acceptJob')}
                     accessibilityRole="button"
-                    style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1 })}
+                    style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1, marginTop: 12 })}
                   >
                     <LinearGradient
                       colors={acceptingJobId === job.id ? ['#9CA3AF', '#6B7280'] : ['#10B981', '#059669']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
-                      style={{ borderRadius: 18, paddingVertical: 18, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                      style={{ borderRadius: 14, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
                     >
                       {acceptingJobId === job.id ? (
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
                         <>
-                          <Check size={22} color="#fff" strokeWidth={2.5} />
-                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 18, letterSpacing: 0.2 }}>{t('acceptJob')}</Text>
+                          <Check size={20} color="#fff" strokeWidth={2.5} />
+                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>{t('acceptJob')}</Text>
                         </>
                       )}
                     </LinearGradient>
                   </Pressable>
                 </View>
               </Animated.View>
-            ))
+              );
+            })
           )}
         </Animated.View>
       </ScrollView>
 
+      </View>
       <ConfirmModal
         visible={errorModal.visible}
         title={errorModal.title}

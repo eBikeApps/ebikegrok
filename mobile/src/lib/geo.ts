@@ -1,3 +1,6 @@
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+
 export type LatLng = { latitude: number; longitude: number };
 
 export function isValidLatLng(lat: unknown, lng: unknown): boolean {
@@ -50,4 +53,18 @@ export function firstSearchParam(value?: string | string[]): string {
 export function safeImageSource(uri?: string | null): { uri: string } | undefined {
   const safe = safeHttpUri(uri);
   return safe ? { uri: safe } : undefined;
+}
+
+export function googleMapsApiKey(): string {
+  const androidKey = Constants.expoConfig?.android?.config?.googleMaps?.apiKey;
+  const iosKey = Constants.expoConfig?.ios?.config?.googleMapsApiKey;
+  const envKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const key = androidKey || iosKey || envKey;
+  return typeof key === 'string' ? key.trim() : '';
+}
+
+/** Android Google Maps crashes native without android.config.googleMaps.apiKey. */
+export function canMountGoogleMap(): boolean {
+  if (Platform.OS !== 'android') return true;
+  return googleMapsApiKey().length > 0;
 }

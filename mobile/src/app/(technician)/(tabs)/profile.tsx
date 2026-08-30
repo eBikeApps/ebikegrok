@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable, ScrollView, Switch, I18nManager, TextInput, Modal, ActivityIndicator } from 'react-native';
 import ConfirmModal from '@/components/ConfirmModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import {
@@ -205,6 +206,7 @@ export default function TechnicianProfileScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
+      <PhoneColumn>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Header */}
         <View className="px-4 py-4 bg-white">
@@ -382,7 +384,7 @@ export default function TechnicianProfileScreen() {
                 <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
                   <Bell size={20} color="#6B7280" />
                 </View>
-                <Text className="ml-3 text-gray-800 font-medium">{t('notifications')}</Text>
+                <Text className="text-gray-800 font-medium" style={{ marginStart: 12 }}>{t('notifications')}</Text>
               </View>
               <Switch
                 value={notificationsEnabled}
@@ -403,7 +405,7 @@ export default function TechnicianProfileScreen() {
                 <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
                   <Globe size={20} color="#6B7280" />
                 </View>
-                <Text className="ml-3 text-gray-800 font-medium">{t('language')}</Text>
+                <Text className="text-gray-800 font-medium" style={{ marginStart: 12 }}>{t('language')}</Text>
               </View>
               <View className="bg-gray-100 px-3 py-1 rounded-full">
                 <Text className="text-gray-600 font-medium">
@@ -417,7 +419,7 @@ export default function TechnicianProfileScreen() {
                 <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
                   <Moon size={20} color="#6B7280" />
                 </View>
-                <Text className="ml-3 text-gray-800 font-medium">
+                <Text className="text-gray-800 font-medium" style={{ marginStart: 12 }}>
                   {colorScheme === 'dark' ? t('lightMode') : t('darkMode')}
                 </Text>
               </View>
@@ -436,7 +438,7 @@ export default function TechnicianProfileScreen() {
               <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
                 <Edit2 size={20} color="#6B7280" />
               </View>
-              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('editProfile')}</Text>
+              <Text className="text-gray-800 font-medium flex-1" style={{ marginStart: 12 }}>{t('editProfile')}</Text>
               <ChevronIcon size={20} color="#9CA3AF" />
             </Pressable>
 
@@ -444,7 +446,7 @@ export default function TechnicianProfileScreen() {
               <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
                 <MessageCircle size={20} color="#6B7280" />
               </View>
-              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('contactWhatsApp')}</Text>
+              <Text className="text-gray-800 font-medium flex-1" style={{ marginStart: 12 }}>{t('contactWhatsApp')}</Text>
               <ChevronIcon size={20} color="#9CA3AF" />
             </Pressable>
 
@@ -452,7 +454,7 @@ export default function TechnicianProfileScreen() {
               <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
                 <Shield size={20} color="#6B7280" />
               </View>
-              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('cancellationPolicy')}</Text>
+              <Text className="text-gray-800 font-medium flex-1" style={{ marginStart: 12 }}>{t('cancellationPolicy')}</Text>
               <ChevronIcon size={20} color="#9CA3AF" />
             </Pressable>
 
@@ -460,7 +462,7 @@ export default function TechnicianProfileScreen() {
               <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
                 <Shield size={20} color="#6B7280" />
               </View>
-              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('termsConditions')}</Text>
+              <Text className="text-gray-800 font-medium flex-1" style={{ marginStart: 12 }}>{t('termsConditions')}</Text>
               <ChevronIcon size={20} color="#9CA3AF" />
             </Pressable>
 
@@ -468,7 +470,7 @@ export default function TechnicianProfileScreen() {
               <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
                 <Shield size={20} color="#6B7280" />
               </View>
-              <Text className="ml-3 text-gray-800 font-medium flex-1">{t('privacyPolicy')}</Text>
+              <Text className="text-gray-800 font-medium flex-1" style={{ marginStart: 12 }}>{t('privacyPolicy')}</Text>
               <ChevronIcon size={20} color="#9CA3AF" />
             </Pressable>
           </View>
@@ -484,7 +486,7 @@ export default function TechnicianProfileScreen() {
             className="bg-white rounded-2xl p-4 flex-row items-center justify-center shadow-sm shadow-black/5 active:bg-red-50"
           >
             <LogOut size={20} color="#EF4444" />
-            <Text className="ml-2 text-red-500 font-semibold text-base">
+            <Text className="text-red-500 font-semibold text-base" style={{ marginStart: 8 }}>
               {t('signOut')}
             </Text>
           </Pressable>
@@ -577,6 +579,7 @@ export default function TechnicianProfileScreen() {
         onConfirm={() => setShowPhotoErrorModal(false)}
         onCancel={() => setShowPhotoErrorModal(false)}
       />
+    </PhoneColumn>
     </SafeAreaView>
   );
 }

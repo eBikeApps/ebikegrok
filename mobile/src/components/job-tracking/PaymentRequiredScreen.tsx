@@ -332,6 +332,9 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     gap: 14,
+    width: '100%',
+    maxWidth: 390,
+    alignSelf: 'center',
   },
   primaryCta: {
     borderRadius: 32,

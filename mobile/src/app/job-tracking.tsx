@@ -36,7 +36,7 @@ import {
 } from '@/lib/active-job-sync';
 import { formatJobReference } from '@/lib/job-reference';
 import { isMockPaymentsEnabled, normalizePaymentUrl } from '@/lib/mock-payments';
-import { firstSearchParam, mapRegionForPoints, pickLatLng, safeHttpUri, toLatLng } from '@/lib/geo';
+import { canMountGoogleMap, firstSearchParam, mapRegionForPoints, pickLatLng, safeHttpUri, toLatLng } from '@/lib/geo';
 import {
   statusSteps,
   calcDistance,
@@ -613,7 +613,7 @@ function JobTrackingScreen() {
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       {/* Map */}
       <View style={{ height: '58%' }}>
-        {mapCustomerLocation && techLocation ? (
+        {mapCustomerLocation && techLocation && canMountGoogleMap() ? (
           <MapView
             style={{ flex: 1 }}
             provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
@@ -1148,8 +1148,12 @@ const styles = StyleSheet.create({
   // Status badge
   statusBadge: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    left: 0,
+    right: 0,
+    width: '100%',
+    maxWidth: 390,
+    alignSelf: 'center',
+    paddingHorizontal: 16,
   },
   statusBadgeInner: {
     borderRadius: 16,
@@ -1186,6 +1190,9 @@ const styles = StyleSheet.create({
   // Bottom sheet
   bottomSheet: {
     flex: 1,
+    width: '100%',
+    maxWidth: 390,
+    alignSelf: 'center',
     backgroundColor: '#fff',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,

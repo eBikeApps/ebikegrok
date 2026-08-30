@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, Pressable, ScrollView, I18nManager, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Briefcase, ChevronLeft, ChevronRight, MapPin } from 'lucide-react-native';
@@ -108,6 +109,7 @@ export default function TechnicianJobsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
+      <PhoneColumn>
       <View className="px-4 py-4 bg-white border-b border-gray-100">
         <Text className="text-2xl font-bold text-gray-900">{t('jobs')}</Text>
       </View>
@@ -218,6 +220,7 @@ export default function TechnicianJobsScreen() {
           })
         )}
       </ScrollView>
+    </PhoneColumn>
     </SafeAreaView>
   );
 }

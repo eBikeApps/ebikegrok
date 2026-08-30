@@ -32,7 +32,8 @@ import { fetchCustomerActiveJob } from '@/lib/active-job-sync';
 import { useSession } from '@/lib/auth/use-session';
 import { uploadJobPhoto } from '@/lib/upload-job-photo';
 import { formatJobReference } from '@/lib/job-reference';
-import { safeImageSource } from '@/lib/geo';
+import { canMountGoogleMap, safeImageSource } from '@/lib/geo';
+import { PhoneColumn } from '@/components/PhoneColumn';
 
 function TechnicianSelectScreen() {
   const router = useRouter();
@@ -362,6 +363,7 @@ function TechnicianSelectScreen() {
   return (
     <SafeAreaView style={tsStyles.screen} edges={['top', 'bottom']}>
       {/* Glass header */}
+      <PhoneColumn style={{ flex: 0 }}>
       <View style={tsStyles.headerWrap}>
         <View style={tsStyles.headerCard}>
           {Platform.OS === 'ios' ? (
@@ -385,8 +387,10 @@ function TechnicianSelectScreen() {
           <View style={tsStyles.headerBorder} pointerEvents="none" />
         </View>
       </View>
+      </PhoneColumn>
 
       {jobTotal != null && (
+        <PhoneColumn style={{ flex: 0 }}>
         <View style={tsStyles.totalPill}>
           {Platform.OS === 'ios' ? (
             <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
@@ -399,10 +403,11 @@ function TechnicianSelectScreen() {
           </Text>
           <View style={tsStyles.totalBorder} pointerEvents="none" />
         </View>
+        </PhoneColumn>
       )}
 
       {/* Mini map in glass frame */}
-      {hasValidJobLocation && (
+      {hasValidJobLocation && canMountGoogleMap() && (
         <View style={tsStyles.mapFrame}>
           <MapView
             style={{ flex: 1 }}
@@ -435,6 +440,7 @@ function TechnicianSelectScreen() {
         </View>
       )}
 
+      <PhoneColumn>
       {/* Glass filter chips */}
       <ScrollView
         horizontal
@@ -710,6 +716,7 @@ function TechnicianSelectScreen() {
         }}
         onCancel={() => setInfoModal((s) => ({ ...s, visible: false }))}
       />
+    </PhoneColumn>
     </SafeAreaView>
   );
 }

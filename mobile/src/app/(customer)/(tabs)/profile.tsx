@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView, Switch, I18nManager, Modal, Activity
 import ConfirmModal from '@/components/ConfirmModal';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PhoneColumn } from '@/components/PhoneColumn';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import {
@@ -280,6 +281,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+      <PhoneColumn>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Header */}
         <View className="px-4 py-4 bg-white">
@@ -507,6 +509,7 @@ export default function ProfileScreen() {
         onConfirm={() => setShowInfoModal(false)}
         onCancel={() => setShowInfoModal(false)}
       />
+    </PhoneColumn>
     </SafeAreaView>
   );
 }
