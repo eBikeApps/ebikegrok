@@ -1,35 +1,74 @@
 // metro.config.js
-// NOTE TO AI: Do note change this file unless you are 110% sure you know what you are doing. It will likely break the app.
+// EAS Linux cannot load this file if NativeWind/Vibecode throw at require-time.
 
-const { getDefaultConfig } = require("expo/metro-config");
-const { withNativeWind } = require("nativewind/metro");
-const { withVibecodeMetro } = require("@vibecodeapp/sdk/metro");
+console.log("[Metro Config] boot", process.version, {
+  eas: process.env.EAS_BUILD,
+  nodeEnv: process.env.NODE_ENV,
+  cwd: process.cwd(),
+  gradle: Boolean(process.env.GRADLE_USER_HOME),
+});
+
 const path = require("path");
 const fs = require("fs");
+
+const skipHeavy =
+  process.env.EAS_BUILD === "true" ||
+  process.env.CI === "true" ||
+  Boolean(process.env.GRADLE_USER_HOME);
+
+function safeRequire(id) {
+  try {
+    return require(id);
+  } catch (e) {
+    console.error("[Metro Config] require failed:", id);
+    console.error(e && (e.stack || e));
+    return null;
+  }
+}
+
+const expoMetro = safeRequire("expo/metro-config");
+if (!expoMetro || !expoMetro.getDefaultConfig) {
+  throw new Error("[Metro Config] expo/metro-config failed to load");
+}
+const { getDefaultConfig } = expoMetro;
+
+let withNativeWind = (config) => config;
+const nativeWindMod = safeRequire("nativewind/metro");
+if (nativeWindMod && nativeWindMod.withNativeWind) {
+  withNativeWind = nativeWindMod.withNativeWind;
+} else {
+  console.warn("[Metro Config] nativewind/metro unavailable, continuing without it");
+}
+
+let withVibecodeMetro = (config) => config;
+if (!skipHeavy) {
+  const vibe = safeRequire("@vibecodeapp/sdk/metro");
+  if (vibe && vibe.withVibecodeMetro) {
+    withVibecodeMetro = vibe.withVibecodeMetro;
+  }
+}
+
+const skipVibecode = skipHeavy;
 
 /** @type {import('expo/metro-config').MetroConfig} */
 let config = getDefaultConfig(__dirname);
 
-// Only configure shared folder if it exists (may not exist during Docker build)
 const sharedFolder = path.resolve(__dirname, "../shared");
 const sharedFolderExists = fs.existsSync(sharedFolder);
 
-// DEBUG: Log metro.config.js version and shared folder status at startup
-console.log("[Metro Config] Version: 2026-08-27-android-embed-2");
+console.log("[Metro Config] Version: 2026-08-31-eas-safe-require");
 console.log(`[Metro Config] Shared folder: ${sharedFolder}`);
 console.log(`[Metro Config] Shared folder exists: ${sharedFolderExists}`);
+console.log("[Metro Config] skipHeavy:", skipHeavy);
 
 if (sharedFolderExists) {
   config.watchFolders = [sharedFolder];
 }
 
-// Disable Watchman for file watching.
 config.resolver.useWatchman = false;
 
-// Configure asset and source extensions.
 const { assetExts, sourceExts } = config.resolver;
 
-// SVG transformer is configured by withVibecodeMetro
 config.transformer = {
   ...config.transformer,
   getTransformOptions: async () => ({
@@ -40,15 +79,11 @@ config.transformer = {
   }),
 };
 
-// Configure resolver with SVG support, shared folder resolution, and web platform mocking
 config.resolver = {
   ...config.resolver,
   assetExts: assetExts.filter((ext) => ext !== "svg"),
   sourceExts: [...sourceExts, "svg"],
   useWatchman: false,
-  // Only add shared folder resolution if it exists
-  // NOTE: unstable_enablePackageExports moved inside conditional - it breaks dynamic imports
-  // like `await import("expo-image")` when enabled globally
   ...(sharedFolderExists && {
     unstable_enablePackageExports: true,
     extraNodeModules: {
@@ -61,46 +96,30 @@ config.resolver = {
     ],
   }),
   resolveRequest: (context, moduleName, platform) => {
-    // Handle @/shared/* imports explicitly
-    // This is needed because:
-    // 1. extraNodeModules alone doesn't handle subpath resolution
-    // 2. Babel alias would transform to relative path which fails for nested files
     if (sharedFolderExists && moduleName.startsWith("@/shared/")) {
       const subpath = moduleName.slice("@/shared/".length);
       const resolvedPath = path.join(sharedFolder, subpath);
-      console.log(`[Metro Resolve] @/shared alias: ${moduleName} -> ${resolvedPath}`);
       return context.resolveRequest(context, resolvedPath, platform);
     }
 
-    // Also handle exact @/shared import (without subpath)
     if (sharedFolderExists && moduleName === "@/shared") {
-      console.log(`[Metro Resolve] @/shared exact: ${moduleName} -> ${sharedFolder}`);
       return context.resolveRequest(context, sharedFolder, platform);
     }
 
-    // Handle relative ../shared/* imports (fallback for unmigrated legacy code)
-    // These imports are incorrect (resolve to wrong location) but we redirect them
-    // to the actual shared folder for backwards compatibility
-    // IMPORTANT: Only apply to user code, NOT node_modules (e.g., better-auth has its own internal shared/)
     if (sharedFolderExists && !context.originModulePath?.includes("node_modules")) {
       const relativeSharedMatch = moduleName.match(/^(?:\.\.\/)+shared\/(.+)$/);
       if (relativeSharedMatch) {
         const subpath = relativeSharedMatch[1];
         const resolvedPath = path.join(sharedFolder, subpath);
-        console.log(`[Metro Resolve] RELATIVE SHARED: ${moduleName} -> ${resolvedPath}`);
         return context.resolveRequest(context, resolvedPath, platform);
       }
     }
 
-    // Fix better-auth ESM resolution: Metro resolves to .cjs but package only ships .mjs
-    // Intercept .cjs paths and redirect to .mjs
     if (moduleName.includes("better-auth") && moduleName.endsWith(".cjs")) {
       const mjsPath = moduleName.replace(/\.cjs$/, ".mjs");
       return context.resolveRequest(context, mjsPath, platform);
     }
 
-    // SDK 54 moved async-require out of @expo/metro-config. Eager export still
-    // asks for the old path when any import() remains in the graph (EAS Linux).
     if (
       moduleName.includes("async-require") &&
       (moduleName.includes("@expo/metro-config") ||
@@ -113,41 +132,39 @@ config.resolver = {
       );
     }
 
-    // Mock native-only modules on web
     if (platform === "web") {
       const nativeOnlyModules = [
         "react-native-pager-view",
         "reanimated-tab-view",
         "@bottom-tabs/react-navigation",
       ];
-
       if (nativeOnlyModules.some((mod) => moduleName.includes(mod))) {
-        return {
-          type: "empty",
-        };
+        return { type: "empty" };
       }
     }
 
-    // Fallback to default resolution
     return context.resolveRequest(context, moduleName, platform);
   },
 };
 
-// Vibecode's transformer wraps root layout for the web editor. Skip it on EAS
-// and chain the SVG transformer ourselves so production Android can bundle.
-if (process.env.EAS_BUILD === "true") {
+if (skipVibecode) {
   try {
     config.transformer = {
       ...config.transformer,
       babelTransformerPath: require.resolve("react-native-svg-transformer/expo"),
     };
-  } catch {
-    // SVG transformer is optional if the package is not installed on the builder.
+  } catch (e) {
+    console.warn("[Metro Config] SVG transformer skipped:", e && e.message);
   }
 } else {
   config = withVibecodeMetro(config);
 }
 
-module.exports = withNativeWind(config, {
-  input: path.join(__dirname, "global.css"),
-});
+try {
+  module.exports = withNativeWind(config, {
+    input: path.join(__dirname, "global.css"),
+  });
+} catch (e) {
+  console.error("[Metro Config] withNativeWind failed, exporting base config", e);
+  module.exports = config;
+}

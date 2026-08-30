@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, Pressable, ActivityIndicator, Linking, StyleSheet, Platform } from 'react-native';
-import { phoneColumnStyle, useIsTablet } from '@/components/PhoneColumn';
+import { PhoneColumn, phoneColumnStyle, useIsTablet } from '@/components/PhoneColumn';
 import ConfirmModal from '@/components/ConfirmModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -762,6 +762,7 @@ export default function CustomerHomeScreen() {
   };
 
   return (
+<PhoneColumn>
     <View style={{ flex: 1, backgroundColor: '#E5E7EB' }}>
       {/* Map — full screen; header floats on top */}
       <View style={{ flex: 1 }}>
@@ -991,6 +992,7 @@ export default function CustomerHomeScreen() {
 }
 
 const styles = StyleSheet.create({
+</PhoneColumn>
   activeJobWrap: {
     position: 'absolute',
     bottom: 28,

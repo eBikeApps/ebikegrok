@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, Pressable, Switch, ScrollView, RefreshControl, ActivityIndicator, AppState, AppStateStatus, useWindowDimensions } from 'react-native';
+import { View, Text, Pressable, Switch, ScrollView, RefreshControl, ActivityIndicator, AppState, AppStateStatus } from 'react-native';
+import { PHONE_COLUMN_WIDTH, useIsTablet } from '@/components/PhoneColumn';
 import ConfirmModal from '@/components/ConfirmModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -32,8 +33,7 @@ import { reassertTechnicianAvailability } from '@/lib/technician-availability-sy
 export default function TechnicianDashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
-  const isTablet = Math.min(width, height) >= 600;
+  const isTablet = useIsTablet();
   const t = useLanguageStore((s) => s.t);
   const language = useLanguageStore((s) => s.language);
 
@@ -433,7 +433,7 @@ export default function TechnicianDashboardScreen() {
     <View style={{ flex: 1, width: '100%', backgroundColor: '#F9FAFB' }}>
       {/* Header */}
       <View style={{ paddingTop: insets.top, width: '100%', alignSelf: 'stretch' }} className="bg-white border-b border-gray-100">
-        <View className="px-4 py-4" style={{ width: '100%', maxWidth: isTablet ? 390 : undefined, alignSelf: 'center' }}>
+        <View className="px-4 py-4" style={{ width: '100%', maxWidth: isTablet ? PHONE_COLUMN_WIDTH : undefined, alignSelf: 'center' }}>
           <View
             style={{
               flexDirection: 'row',
@@ -447,13 +447,13 @@ export default function TechnicianDashboardScreen() {
                 style={{ width: 48, height: 48, borderRadius: 24 }}
                 contentFit="cover"
               />
-              <View style={{ marginStart: isTablet ? 12 : undefined }} className={isTablet ? '' : 'ml-3'}>
+              <View style={{ marginStart: 12 }}>
                 <Text className="text-gray-900 font-bold text-lg" numberOfLines={1} >
                   {displayName}
                 </Text>
                 <View className="flex-row items-center">
                   <Star size={14} color="#F59E0B" fill="#F59E0B" />
-                  <Text className={isTablet ? 'text-gray-600 text-sm' : 'text-gray-600 text-sm ml-1'} style={isTablet ? { marginStart: 4 } : undefined}>{stats.rating}</Text>
+                  <Text className="text-gray-600 text-sm" style={{ marginStart: 4 }}>{stats.rating}</Text>
                 </View>
               </View>
             </View>
@@ -527,13 +527,13 @@ export default function TechnicianDashboardScreen() {
           {isAvailable && (
             <Animated.View entering={FadeIn.duration(200)} className="mt-3 bg-green-50 rounded-xl px-4 py-2 flex-row items-center">
               <MapPin size={16} color="#10B981" />
-              <Text className={isTablet ? "text-green-700 text-sm" : "text-green-700 text-sm ml-2"} style={isTablet ? { marginStart: 8 } : undefined}>{t('locationActive')}</Text>
+              <Text className="text-green-700 text-sm" style={{ marginStart: 8 }}>{t('locationActive')}</Text>
             </Animated.View>
           )}
         </View>
       </View>
 
-      <View style={{ flex: 1, width: '100%', maxWidth: isTablet ? 390 : undefined, alignSelf: 'center' }}>
+      <View style={{ flex: 1, width: '100%', maxWidth: isTablet ? PHONE_COLUMN_WIDTH : undefined, alignSelf: 'center' }}>
       {/* New Order Banner Notification */}
       {newOrderBanner && (
         <Animated.View

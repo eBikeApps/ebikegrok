@@ -41,6 +41,7 @@
       ]
     },
     "plugins": [
+      "./plugins/with-kotlin-jvm-warning",
       "expo-router",
       [
         "expo-location",
@@ -54,7 +55,7 @@
         "expo-build-properties",
         {
           "android": {
-            "compileSdkVersion": 35,
+            "compileSdkVersion": 36,
             "targetSdkVersion": 35,
             "minSdkVersion": 24,
             "kotlinVersion": "2.1.20"
