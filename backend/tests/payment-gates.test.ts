@@ -4,6 +4,8 @@ import {
   canCreatePayment,
   canProgressWithPayment,
   canTransitionToOnWay,
+  isTechnicianCurrentJob,
+  technicianCanSeeJobInList,
   type JobLikeForPayment,
 } from "../src/lib/payment-gates";
 
@@ -70,3 +72,34 @@ describe("Payment after accept + on_way gate (core spec)", () => {
 
 // Note: Real route tests would call the Hono app with test DB. These pure helpers + the route guards
 // will make the integration behavior match. Run `bun test` to see red until impl.
+
+describe("Technician current job (recover / old APK)", () => {
+  test("accepted+unpaid is not current", () => {
+    expect(isTechnicianCurrentJob({ id: "a", status: "accepted", paymentStatus: "pending" })).toBe(false);
+  });
+
+  test("accepted+paid is current", () => {
+    expect(isTechnicianCurrentJob({ id: "a", status: "accepted", paymentStatus: "paid" })).toBe(true);
+  });
+
+  test("on_way / arrived / in_progress are current even if paid", () => {
+    expect(isTechnicianCurrentJob({ id: "a", status: "on_way", paymentStatus: "paid" })).toBe(true);
+    expect(isTechnicianCurrentJob({ id: "a", status: "arrived", paymentStatus: "paid" })).toBe(true);
+    expect(isTechnicianCurrentJob({ id: "a", status: "in_progress", paymentStatus: "paid" })).toBe(true);
+  });
+
+  test("pending / cancelled / completed are not current", () => {
+    expect(isTechnicianCurrentJob({ id: "a", status: "pending", paymentStatus: "pending" })).toBe(false);
+    expect(isTechnicianCurrentJob({ id: "a", status: "cancelled", paymentStatus: "pending" })).toBe(false);
+    expect(isTechnicianCurrentJob({ id: "a", status: "completed", paymentStatus: "paid" })).toBe(false);
+  });
+
+  test("technician list hides own accepted+unpaid, keeps paid and others", () => {
+    const tech = "tech1";
+    expect(technicianCanSeeJobInList({ id: "1", status: "accepted", paymentStatus: "pending", technicianId: tech }, tech)).toBe(false);
+    expect(technicianCanSeeJobInList({ id: "2", status: "accepted", paymentStatus: "paid", technicianId: tech }, tech)).toBe(true);
+    expect(technicianCanSeeJobInList({ id: "3", status: "on_way", paymentStatus: "paid", technicianId: tech }, tech)).toBe(true);
+    expect(technicianCanSeeJobInList({ id: "4", status: "pending", paymentStatus: "pending", technicianId: null }, tech)).toBe(true);
+    expect(technicianCanSeeJobInList({ id: "5", status: "completed", paymentStatus: "paid", technicianId: tech }, tech)).toBe(true);
+  });
+});

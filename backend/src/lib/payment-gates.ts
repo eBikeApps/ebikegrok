@@ -90,3 +90,26 @@ export function canCompleteJob(job: JobLikeForPayment | null): { ok: boolean; er
   }
   return { ok: true };
 }
+
+/**
+ * Technician "current job" for recover/active.
+ * Same rule as mobile: on_way | arrived | in_progress, or accepted+paid.
+ * accepted+unpaid is waiting for pay-after-accept — not current, not restorable.
+ */
+export function isTechnicianCurrentJob(job: JobLikeForPayment | null): boolean {
+  if (!job) return false;
+  if (["on_way", "arrived", "in_progress"].includes(job.status)) return true;
+  return job.status === "accepted" && job.paymentStatus === "paid";
+}
+
+/** Hide assigned accepted+unpaid from technician GET /api/jobs so old APKs cannot recover them. */
+export function technicianCanSeeJobInList(
+  job: JobLikeForPayment & { technicianId?: string | null },
+  technicianId: string
+): boolean {
+  if (job.technicianId === technicianId && job.status === "accepted" && job.paymentStatus !== "paid") {
+    return false;
+  }
+  return true;
+}
+

@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { prisma } from "../prisma";
 import { sendPushNotification, sendPushNotificationToMany } from "../lib/push-notifications";
-import { canCompleteJob, canProgressWithPayment, canTransitionToOnWay } from "../lib/payment-gates";
+import { canCompleteJob, canProgressWithPayment, canTransitionToOnWay, isTechnicianCurrentJob, technicianCanSeeJobInList } from "../lib/payment-gates";
 import { createJobSchema } from "../lib/job-create-schema";
 import { computeJobPricing, parseCategoryList } from "../lib/repair-pricing";
 import { formatJobReference, withJobReference, withJobReferences } from "../lib/job-reference";
@@ -275,7 +275,9 @@ jobsRouter.get("/", async (c) => {
         ? { customerId: user.id }
         : {
             OR: [
-              { technicianId: user.id },
+              // Own jobs except accepted+unpaid (those wait for pay-after-accept; old APKs crash if restored)
+              { technicianId: user.id, status: { not: "accepted" } },
+              { technicianId: user.id, status: "accepted", paymentStatus: "paid" },
               { status: "pending", technicianId: null },
             ],
           };
@@ -298,9 +300,14 @@ jobsRouter.get("/", async (c) => {
       },
     });
 
+    const visible =
+      user.role === "technician"
+        ? jobs.filter((job) => technicianCanSeeJobInList(job, user.id))
+        : jobs;
+
     const sanitized =
       user.role === "technician"
-        ? jobs.map((job) =>
+        ? visible.map((job) =>
             job.status === "pending" && job.customer
               ? {
                   ...job,
@@ -312,7 +319,7 @@ jobsRouter.get("/", async (c) => {
                 }
               : job
           )
-        : jobs;
+        : visible;
 
     return c.json({ jobs: withJobReferences(sanitized) });
   } catch (error) {
@@ -354,6 +361,49 @@ jobsRouter.get("/customer/active", async (c) => {
     return c.json({ job: job ? withJobReference(job) : null });
   } catch (error) {
     console.error("Error fetching customer active job:", error);
+    return c.json({ message: "Internal server error" }, 500);
+  }
+});
+
+
+// Technician current job: on_way | arrived | in_progress | accepted+paid.
+// accepted+unpaid is NOT current (pay-after-accept). Old APKs must not recover it.
+jobsRouter.get("/technician/active", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.body(null, 401);
+
+  if (user.role !== "technician") {
+    return c.json({ job: null });
+  }
+
+  try {
+    const job = await prisma.job.findFirst({
+      where: {
+        technicianId: user.id,
+        OR: [
+          { status: { in: ["on_way", "arrived", "in_progress"] } },
+          { status: "accepted", paymentStatus: "paid" },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        customer: {
+          select: { id: true, name: true, email: true, image: true, phone: true },
+        },
+        technician: {
+          select: {
+            id: true, name: true, email: true, image: true, phone: true,
+            rating: true, totalReviews: true, vehicleType: true, basePrice: true,
+            currentLocationLat: true, currentLocationLng: true,
+          },
+        },
+      },
+    });
+
+    const current = job && isTechnicianCurrentJob(job) ? job : null;
+    return c.json({ job: current ? withJobReference(current) : null });
+  } catch (error) {
+    console.error("Error fetching technician active job:", error);
     return c.json({ message: "Internal server error" }, 500);
   }
 });
