@@ -270,7 +270,7 @@ export default function AdminScreen() {
                   {t(tab.labelKey as any)}
                 </Text>
                 {count > 0 && (
-                  <View className={`px-2 py-0.5 rounded-full ${isActive ? 'bg-white/20' : 'bg-gray-200'`}>
+                  <View className={`px-2 py-0.5 rounded-full ${isActive ? 'bg-white/20' : 'bg-gray-200'}`>
                     <Text className={`text-xs font-bold ${isActive ? 'text-white' : 'text-gray-600'}`}>
                       {count}
                     </Text>
