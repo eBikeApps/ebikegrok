@@ -191,6 +191,24 @@ export function verifyPaymeNotify(body: any): boolean {
   );
 }
 
+/**
+ * A PayMe callback counts as a capture only for sale-complete with a transaction id.
+ * Opening the checkout, a return URL, or status_code 0 are not a payment.
+ */
+export function paymeNotifyIsCaptured(body: any): boolean {
+  if (!body || typeof body !== "object") return false;
+  const notifyType = String(body.notify_type ?? body.notifyType ?? "").trim().toLowerCase();
+  if (notifyType && notifyType !== "sale-complete") return false;
+  const saleStatus = String(body.sale_status ?? body.saleStatus ?? "").trim().toLowerCase();
+  const completedStatus = saleStatus === "completed" || saleStatus === "paid";
+  if (saleStatus && !completedStatus) return false;
+  const transactionId = String(
+    body.payme_transaction_id ?? body.paymeTransactionId ?? body.payme_transaction_code ?? ""
+  ).trim();
+  if (!transactionId) return false;
+  return notifyType === "sale-complete" || completedStatus;
+}
+
 export type PaymeNotifyBody = {
   payme_sale_id?: string;
   sale_id?: string;

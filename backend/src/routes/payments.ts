@@ -14,6 +14,7 @@ import {
 import {
   createPaymeSale,
   isPaymeConfigured,
+  paymeNotifyIsCaptured,
   verifyPaymeNotify,
 } from "../lib/payme";
 import { formatJobReference } from "../lib/job-reference";
@@ -58,7 +59,7 @@ function resolvePaymeCallbackBase(c: { req: { header: (name: string) => string |
 }
 
 // B27 FIX: validate commission rate at startup
-const RAW_COMMISSION = Number(process.env.COMMISSION_RATE ?? "0.10");
+const RAW_COMMISSION = Number(process.env.COMMISSION_RATE ?? "0.20");
 if (Number.isNaN(RAW_COMMISSION) || RAW_COMMISSION < 0 || RAW_COMMISSION >= 1) {
   throw new Error(`Invalid COMMISSION_RATE: ${process.env.COMMISSION_RATE}`);
 }
@@ -220,7 +221,11 @@ async function markMainJobPaid(params: {
   paymentSum: number;
 }): Promise<boolean> {
   const claim = await prisma.job.updateMany({
-    where: { id: params.jobId, paymentStatus: { not: "paid" } },
+    where: {
+      id: params.jobId,
+      paymentStatus: { not: "paid" },
+      status: { in: ["accepted", "on_way", "arrived", "in_progress"] },
+    },
     data: { paymentStatus: "paid" },
   });
   if (claim.count === 0) return false;
@@ -397,18 +402,7 @@ paymentsRouter.post("/payme/notify", async (c) => {
     if (!saleId) return c.json({ ok: true });
 
     const saleIdStr = String(saleId);
-    const status = String(body.sale_status || body.status || "").toLowerCase();
-    const isPaid =
-      status === "paid" ||
-      status === "completed" ||
-      status === "success" ||
-      body.sale_paid === true ||
-      body.sale_paid === "true" ||
-      body.sale_paid === 1 ||
-      body.paid === true ||
-      body.success === true;
-
-    if (!isPaid) return c.json({ ok: true });
+    if (!paymeNotifyIsCaptured(body)) return c.json({ ok: true });
 
     const rawPrice =
       typeof body.price === "number"
@@ -465,20 +459,6 @@ paymentsRouter.post("/payme/notify", async (c) => {
     return c.json({ ok: false }, 500);
   }
 });
-
-async function syncJobPaymentOnSuccess(jobId: string) {
-  const payment = await prisma.payment.findUnique({ where: { jobId } });
-  if (!payment) return;
-
-  const ref = payment.growTransactionCode || "";
-  if ((ref.startsWith("mock:") || ref.startsWith("payme:")) && payment.status === "pending") {
-    await markMainJobPaid({
-      jobId,
-      transactionId: ref,
-      paymentSum: payment.amount,
-    });
-  }
-}
 
 async function markExtraRepairPaid(params: {
   extraId: string;
@@ -704,6 +684,30 @@ paymentsRouter.get("/extra-repair/pending/:jobId", async (c) => {
   return c.json({ extras });
 });
 
+// GET /api/payments/extra-repair/:id/status — poll one extra without trusting the main job's paid flag
+paymentsRouter.get("/extra-repair/:id/status", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.body(null, 401);
+
+  const id = c.req.param("id");
+  const extra = await prisma.extraRepairRequest.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      status: true,
+      amount: true,
+      job: { select: { customerId: true, technicianId: true, secondaryTechnicianId: true } },
+    },
+  });
+  if (!extra) return c.json({ error: "Not found" }, 404);
+  const allowed =
+    extra.job.customerId === user.id ||
+    extra.job.technicianId === user.id ||
+    extra.job.secondaryTechnicianId === user.id;
+  if (!allowed) return c.json({ error: "Forbidden" }, 403);
+  return c.json({ status: extra.status, amount: extra.amount });
+});
+
 // POST /api/payments/extra-repair/:id/reject — customer declines extra work
 paymentsRouter.post("/extra-repair/:id/reject", async (c) => {
   const user = c.get("user");
@@ -737,36 +741,65 @@ paymentsRouter.post("/extra-repair/:id/reject", async (c) => {
   return c.json({ success: true });
 });
 
-// GET /api/payments/success — browser redirect after payment provider success
-paymentsRouter.get("/success", async (c) => {
-  const jobId = c.req.query("jobId") ?? "";
-  const extraId = c.req.query("extraId") ?? "";
-  if (extraId) {
-    try {
-      await markExtraRepairPaid({
-        extraId,
-        transactionId: `success-sync:extra:${extraId}`,
-      });
-    } catch (err) {
-      console.error("[Payments] extra success-sync error:", err);
-    }
-  } else if (jobId) {
-    try {
-      await syncJobPaymentOnSuccess(jobId);
-    } catch (err) {
-      console.error("[Payments] success-sync error:", err);
-    }
-  }
-  return c.html(`<!DOCTYPE html>
+function paymentBrowserPage(kind: "paid" | "pending" | "failed"): string {
+  if (kind === "paid") {
+    return `<!DOCTYPE html>
 <html dir="rtl"><head><meta charset="UTF-8"><title>תשלום הושלם</title>
 <style>body{font-family:-apple-system,Arial,sans-serif;background:#f0fdf4;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
 .card{background:#fff;border-radius:20px;padding:40px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.08)}
 h2{color:#166534;font-size:24px}p{color:#4b5563;font-size:15px}</style></head>
 <body><div class="card"><div style="font-size:52px">✅</div>
 <h2>התשלום הושלם בהצלחה!</h2>
-<p>ניתן לסגור חלון זה וחזור לאפליקציה.</p></div>
-<script>setTimeout(()=>{try{window.close()}catch(e){}},3000)</script>
-</body></html>`);
+<p>ניתן לסגור חלון זה ולחזור לאפליקציה.</p></div>
+</body></html>`;
+  }
+  if (kind === "failed") {
+    return `<!DOCTYPE html>
+<html dir="rtl"><head><meta charset="UTF-8"><title>התשלום לא הושלם</title>
+<style>body{font-family:-apple-system,Arial,sans-serif;background:#fef2f2;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#fff;border-radius:20px;padding:40px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+h2{color:#991b1b;font-size:22px}p{color:#4b5563;font-size:15px}</style></head>
+<body><div class="card"><div style="font-size:52px">❌</div>
+<h2>התשלום לא הושלם</h2>
+<p>לא בוצע חיוב. חזור לאפליקציה ונסה שוב.</p></div></body></html>`;
+  }
+  return `<!DOCTYPE html>
+<html dir="rtl"><head><meta charset="UTF-8"><title>ממתינים לאישור תשלום</title>
+<style>body{font-family:-apple-system,Arial,sans-serif;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#fff;border-radius:20px;padding:40px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+h2{color:#0f172a;font-size:22px}p{color:#4b5563;font-size:15px}</style></head>
+<body><div class="card"><div style="font-size:52px">⏳</div>
+<h2>התשלום עדיין לא אושר</h2>
+<p>פתיחת דף התשלום אינה חיוב. השלם את התשלום בדף הסליקה.</p></div></body></html>`;
+}
+
+// GET /api/payments/success — browser return URL. Never marks a job paid.
+paymentsRouter.get("/success", async (c) => {
+  const jobId = c.req.query("jobId") ?? "";
+  const extraId = c.req.query("extraId") ?? "";
+  const providerStatus = (c.req.query("payme_status") ?? c.req.query("status") ?? "").toLowerCase();
+  const providerFailed = providerStatus === "error" || providerStatus === "failed" || providerStatus === "cancel" || providerStatus === "cancelled";
+
+  try {
+    if (extraId) {
+      const extra = await prisma.extraRepairRequest.findUnique({
+        where: { id: extraId },
+        select: { status: true },
+      });
+      if (extra?.status === "paid") return c.html(paymentBrowserPage("paid"));
+      return c.html(paymentBrowserPage(providerFailed ? "failed" : "pending"));
+    }
+    if (jobId) {
+      const job = await prisma.job.findUnique({
+        where: { id: jobId },
+        select: { paymentStatus: true },
+      });
+      if (job?.paymentStatus === "paid") return c.html(paymentBrowserPage("paid"));
+    }
+  } catch (err) {
+    console.error("[Payments] success page error:", err);
+  }
+  return c.html(paymentBrowserPage(providerFailed ? "failed" : "pending"));
 });
 
 // GET /api/payments/cancel — browser redirect after payment cancel
@@ -797,7 +830,10 @@ paymentsRouter.get("/status/:jobId", async (c) => {
     return c.json({ error: "Forbidden" }, 403);
   }
 
-  const payment = await prisma.payment.findUnique({ where: { jobId } });
+  const payment = await prisma.payment.findUnique({
+    where: { jobId },
+    select: { id: true, status: true, amount: true, paidAt: true },
+  });
   return c.json({ paymentStatus: job.paymentStatus, payment });
 });
 
