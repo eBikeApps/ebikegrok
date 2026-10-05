@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { expo } from "@better-auth/expo";
+import { getOAuthState } from "better-auth/api";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "./prisma";
 import { env } from "./env";
@@ -133,7 +134,8 @@ export const auth = betterAuth({
   // ============================================
   trustedOrigins: [
     "vibecode://", // Mobile deep links — expo plugin uses startsWith (no wildcards)
-    "ebike://", // Production app scheme
+    "ebike://", // Customer app scheme
+    "ebiketech://", // Technician app scheme. Must stay separate so Apple's return opens Bike Tech.
     "exp://", // Expo Go — expo plugin uses startsWith (no wildcards)
     "exp+ebike://", // Expo dev client scheme
     "http://localhost:*",
@@ -154,6 +156,30 @@ export const auth = betterAuth({
       : {}),
   },
   plugins: [expo()],
+
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          // A first sign-in from Bike Tech must not become a customer account.
+          try {
+            const state = await getOAuthState();
+            const callback = typeof state?.callbackURL === "string" ? state.callbackURL : "";
+            if (!callback.startsWith("ebiketech://")) return;
+            return {
+              data: {
+                ...user,
+                role: "technician",
+                isApproved: false,
+              },
+            };
+          } catch (error) {
+            console.error("[Auth] technician signup hook failed", error);
+          }
+        },
+      },
+    },
+  },
 
   // ============================================
   // REQUIRED: Cross-origin cookie settings
