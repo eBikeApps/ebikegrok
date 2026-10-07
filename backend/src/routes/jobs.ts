@@ -442,6 +442,50 @@ jobsRouter.get("/technician/pending", async (c) => {
   }
 });
 
+// Light inbox for the technician dashboard poll.
+// Open board + jobs already assigned to this tech, still pending. No phone/email.
+jobsRouter.get("/technician/inbox", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.body(null, 401);
+  if (user.role !== "technician") {
+    return c.json({ message: "Not authorized" }, 403);
+  }
+
+  try {
+    const jobs = await prisma.job.findMany({
+      where: {
+        status: "pending",
+        OR: [{ technicianId: null }, { technicianId: user.id }],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      select: {
+        id: true,
+        jobNumber: true,
+        technicianId: true,
+        status: true,
+        paymentStatus: true,
+        photoUrl: true,
+        description: true,
+        bikeType: true,
+        category: true,
+        estimatedPriceMin: true,
+        estimatedPriceMax: true,
+        customerAddress: true,
+        customerLocationLat: true,
+        customerLocationLng: true,
+        createdAt: true,
+        customer: { select: { id: true, name: true, image: true } },
+      },
+    });
+
+    return c.json({ jobs: withJobReferences(jobs) });
+  } catch (error) {
+    console.error("Error fetching technician inbox:", error);
+    return c.json({ message: "Internal server error" }, 500);
+  }
+});
+
 // Update job status (technician accepts/declines/progresses, customer cancels)
 jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c) => {
   const user = c.get("user");
