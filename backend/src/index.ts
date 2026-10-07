@@ -13,6 +13,7 @@ import { messagesRouter } from "./routes/messages";
 import { streetsRouter } from "./routes/streets";
 import { geocodeRouter } from "./routes/geocode";
 import { addressesRouter } from "./routes/addresses";
+import { adminPanelRouter } from "./routes/admin-panel";
 import { logger } from "hono/logger";
 import { auth } from "./auth";
 import { ensureJobPhotosBucket, isSupabaseStorageConfigured } from "./lib/supabase-storage";
@@ -1066,6 +1067,7 @@ app.get("/admin", async (c) => {
 });
 
 // Routes
+app.route("/api/admin", adminPanelRouter);
 app.route("/api/uploads", uploadsRouter);
 app.route("/api/sample", sampleRouter);
 app.route("/api/technicians", techniciansRouter);
