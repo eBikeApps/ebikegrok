@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { reviewGate } from "../lib/review-rules";
+import { sendPushNotification } from "../lib/push-notifications";
 
 type HonoEnv = {
   Variables: {
@@ -96,6 +97,24 @@ reviewsRouter.post("/", zValidator("json", createReviewSchema), async (c) => {
       await recomputeTechnicianRating(tx, gate.technicianId);
       return newReview;
     });
+
+    try {
+      const tech = await prisma.user.findUnique({
+        where: { id: gate.technicianId },
+        select: { expoPushToken: true },
+      });
+      if (tech?.expoPushToken) {
+        const customerName = review.customer?.name?.trim() || "לקוח";
+        await sendPushNotification(
+          tech.expoPushToken,
+          "ביקורת חדשה",
+          `${customerName} דירג ${rating} כוכבים`,
+          { screen: "/(technician)/(tabs)" }
+        );
+      }
+    } catch (error) {
+      console.error("[Push] review notification error:", error);
+    }
 
     return c.json({ review: serializeReview(review) }, 201);
   } catch (error: any) {

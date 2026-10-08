@@ -8,6 +8,25 @@ import { createJobSchema } from "../lib/job-create-schema";
 import { computeJobPricing, parseCategoryList } from "../lib/repair-pricing";
 import { formatJobReference, withJobReference, withJobReferences } from "../lib/job-reference";
 
+async function pushUser(
+  userId: string | null | undefined,
+  title: string,
+  body: string,
+  data: Record<string, unknown>
+) {
+  if (!userId) return;
+  try {
+    const person = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { expoPushToken: true },
+    });
+    if (!person?.expoPushToken) return;
+    await sendPushNotification(person.expoPushToken, title, body, data);
+  } catch (error) {
+    console.error("[Push] notification error:", error);
+  }
+}
+
 const updateStatusSchema = z.object({
   status: z.enum(["accepted", "on_way", "arrived", "in_progress", "completed", "cancelled"]),
   finalPrice: z.number().min(0).max(50000).optional(),
@@ -673,6 +692,12 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
           },
         },
       });
+      await pushUser(
+        job.customerId,
+        "הטכנאי בדרך אליך",
+        "הטכנאי יצא לכיוון הכתובת",
+        { jobId: id, screen: "job-tracking" }
+      );
       return c.json({ job: updated });
     }
 
@@ -771,6 +796,12 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
           },
         },
       });
+      await pushUser(
+        job.customerId,
+        "התיקון הסתיים",
+        "הטכנאי סיים את העבודה",
+        { jobId: id, screen: "job-tracking" }
+      );
       return c.json({ job: completedJob });
     }
 
@@ -865,6 +896,23 @@ jobsRouter.patch("/:id/status", zValidator("json", updateStatusSchema), async (c
         },
       },
     });
+
+    if (status === "arrived") {
+      await pushUser(
+        job.customerId,
+        "הטכנאי הגיע",
+        "הטכנאי הגיע אליך. אפשר לאשר את תחילת התיקון",
+        { jobId: id, screen: "job-tracking" }
+      );
+    }
+    if (status === "in_progress") {
+      await pushUser(
+        user.role === "customer" ? job.technicianId : job.customerId,
+        user.role === "customer" ? "הלקוח אישר את תחילת התיקון" : "התיקון התחיל",
+        user.role === "customer" ? "אפשר להתחיל לעבוד" : "הטכנאי התחיל בתיקון",
+        { jobId: id, screen: user.role === "customer" ? "active-job" : "job-tracking" }
+      );
+    }
 
     return c.json({ job: updatedJob });
   } catch (error) {
