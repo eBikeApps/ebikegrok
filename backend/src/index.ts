@@ -13,6 +13,7 @@ import { messagesRouter } from "./routes/messages";
 import { streetsRouter } from "./routes/streets";
 import { geocodeRouter } from "./routes/geocode";
 import { addressesRouter } from "./routes/addresses";
+import { appReleaseRouter } from "./routes/app-release";
 import { adminPanelRouter } from "./routes/admin-panel";
 import { logger } from "hono/logger";
 import { auth } from "./auth";
@@ -1079,6 +1080,7 @@ app.route("/api/jobs", messagesRouter);
 app.route("/api/streets", streetsRouter);
 app.route("/api/geocode", geocodeRouter);
 app.route("/api/users/me/addresses", addressesRouter);
+app.route("/api/app-release", appReleaseRouter);
 
 // Delete own account - permanent, deletes all user data
 app.delete("/api/users/me", async (c) => {
