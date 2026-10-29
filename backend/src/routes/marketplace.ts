@@ -11,6 +11,7 @@ import {
   publicSellerName,
   validateClassifiedMessage,
   validateListingFields,
+  validateListingPhoto,
 } from "../lib/classifieds";
 
 type Env = {
@@ -68,6 +69,9 @@ function ensureClassifiedTable(): Promise<void> {
         ON "ClassifiedListing" ("sellerId", "createdAt")
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "photoUrl" TEXT
+      `);
+      await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "ClassifiedMessage" (
           "id" TEXT PRIMARY KEY,
           "listingId" TEXT NOT NULL,
@@ -105,6 +109,7 @@ type ListingRow = {
   createdAt: Date;
   sellerName: string | null;
   contactPhone?: string | null;
+  photoUrl?: string | null;
 };
 
 function present(row: ListingRow, includePhone: boolean) {
@@ -119,6 +124,7 @@ function present(row: ListingRow, includePhone: boolean) {
     status: row.status,
     createdAt: row.createdAt,
     sellerName: publicSellerName(row.sellerName),
+    photoUrl: row.photoUrl ?? null,
     ...(includePhone ? { contactPhone: row.contactPhone ?? null } : {}),
   };
 }
@@ -130,6 +136,7 @@ const createSchema = z.object({
   priceIls: z.number().int(),
   city: z.string().max(50),
   contactPhone: z.string().max(20).optional(),
+  photoUrl: z.string().max(400).optional(),
   website: z.string().max(200).optional(),
 });
 
@@ -154,7 +161,7 @@ marketplaceRouter.get("/listings", async (c) => {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
       SELECT l.id, l."sellerId", l.category, l.title, l.description, l."priceIls", l.city, l.status, l."createdAt",
-             u.name AS "sellerName"
+             l."photoUrl", u.name AS "sellerName"
       FROM "ClassifiedListing" l
       JOIN "User" u ON u.id = l."sellerId"
       WHERE l.status = 'active'
@@ -181,7 +188,7 @@ marketplaceRouter.get("/listings/:id", async (c) => {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
       SELECT l.id, l."sellerId", l.category, l.title, l.description, l."priceIls", l.city, l.status, l."createdAt",
-             l."contactPhone", u.name AS "sellerName"
+             l."contactPhone", l."photoUrl", u.name AS "sellerName"
       FROM "ClassifiedListing" l
       JOIN "User" u ON u.id = l."sellerId"
       WHERE l.id = ${c.req.param("id")} AND l.status = 'active'
@@ -202,7 +209,7 @@ marketplaceRouter.get("/mine", async (c) => {
   try {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
-      SELECT id, "sellerId", category, title, description, "priceIls", city, status, "createdAt", "contactPhone",
+      SELECT id, "sellerId", category, title, description, "priceIls", city, status, "createdAt", "contactPhone", "photoUrl",
              NULL::text AS "sellerName"
       FROM "ClassifiedListing"
       WHERE "sellerId" = ${user.id} AND status IN ('active', 'sold')
@@ -224,6 +231,8 @@ marketplaceRouter.post("/listings", zValidator("json", createSchema), async (c) 
   const user = c.get("user");
   const checked = validateListingFields(body);
   if (!checked.ok) return c.json({ error: checked.error }, 400);
+  const photo = validateListingPhoto(body.photoUrl);
+  if (!photo.ok) return c.json({ error: photo.error }, 400);
   if (!user?.id) return c.json({ error: "sign_in_required" }, 401);
   const now = Date.now();
   const ip = clientIp(c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip"));
@@ -267,10 +276,10 @@ marketplaceRouter.post("/listings", zValidator("json", createSchema), async (c) 
     const id = randomUUID();
     await prisma.$executeRaw`
       INSERT INTO "ClassifiedListing"
-        (id, "sellerId", category, title, description, "priceIls", city, "contactPhone", status, "createdAt", "updatedAt")
+        (id, "sellerId", category, title, description, "priceIls", city, "contactPhone", "photoUrl", status, "createdAt", "updatedAt")
       VALUES
         (${id}, ${user!.id}, ${checked.value.category}, ${checked.value.title}, ${checked.value.description},
-         ${checked.value.priceIls}, ${checked.value.city}, ${checked.value.contactPhone}, 'active', NOW(), NOW())
+         ${checked.value.priceIls}, ${checked.value.city}, ${checked.value.contactPhone}, ${photo.value}, 'active', NOW(), NOW())
     `;
     markHit(`create-ip:${ip}`, now);
     markHit("create-global", now);

@@ -29,9 +29,14 @@ export type ListingErrorCode =
   | "bad_price"
   | "bad_city"
   | "bad_phone"
+  | "bad_photo"
   | "links_forbidden";
 
 const URL_RE = /(?:https?:\/\/|www\.)/i;
+const SUPABASE_PHOTO_RE =
+  /^https:\/\/[a-z0-9]{8,40}\.supabase\.co\/storage\/v1\/object\/public\/[a-z0-9_-]{1,40}\/[A-Za-z0-9/_-]{8,240}\.(?:jpe?g|png|webp)$/i;
+const OWN_UPLOAD_RE =
+  /^https:\/\/ebikel-backend\.onrender\.com\/api\/uploads\/[A-Za-z0-9-]{8,80}\.(?:jpe?g|png|webp)$/i;
 const PHONE_RE = /^05\d{8}$/;
 const CITY_RE = /^[\p{L}][\p{L}\s'’.-]{1,39}$/u;
 const REPEAT_RE = /(.)\1{6,}/u;
@@ -135,6 +140,19 @@ export function assessNewListing(input: {
     return { ok: false, status: 429, error: "board_full" };
   }
   return { ok: true };
+}
+
+/** A listing photo is optional. A supplied address must be a picture we stored. */
+export function validateListingPhoto(
+  value: string | null | undefined
+): { ok: true; value: string | null } | { ok: false; error: "bad_photo" } {
+  const raw = (value ?? "").trim();
+  if (!raw) return { ok: true, value: null };
+  if (raw.length > 400 || raw.includes("..") || raw.includes("\\") || raw.includes("?")) {
+    return { ok: false, error: "bad_photo" };
+  }
+  if (SUPABASE_PHOTO_RE.test(raw) || OWN_UPLOAD_RE.test(raw)) return { ok: true, value: raw };
+  return { ok: false, error: "bad_photo" };
 }
 
 export function validateClassifiedMessage(
