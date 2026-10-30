@@ -87,8 +87,7 @@ export function validateListingFields(input: {
   }
   const descriptionIssue = textProblem(description);
   if (descriptionIssue === "links_forbidden") return { ok: false, error: "links_forbidden" };
-  const words = description.split(" ").filter(Boolean);
-  if (description.length < 20 || description.length > 600 || words.length < 4 || descriptionIssue) {
+  if (description.length < 9 || description.length > 600 || descriptionIssue) {
     return { ok: false, error: "bad_description" };
   }
   if (description.toLowerCase() === title.toLowerCase()) {
