@@ -82,7 +82,7 @@ export function validateListingFields(input: {
   const city = cleanListingText(input.city);
   const titleIssue = textProblem(title);
   if (titleIssue === "links_forbidden") return { ok: false, error: "links_forbidden" };
-  if (title.length < 6 || title.length > 70 || !/\p{L}/u.test(title) || REPEAT_RE.test(title)) {
+  if (title.length < 4 || title.length > 70 || !/\p{L}/u.test(title) || REPEAT_RE.test(title)) {
     return { ok: false, error: "bad_title" };
   }
   const descriptionIssue = textProblem(description);
