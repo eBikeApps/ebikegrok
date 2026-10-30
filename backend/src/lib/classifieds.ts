@@ -179,6 +179,11 @@ export type ClassifiedMessagePush = {
   };
 };
 
+/** Admin lock-screen line for a new second-hand listing. No seller, model, price, city, or phone. */
+export function classifiedListingAdminAlert(): { title: string; body: string } {
+  return { title: "יד שנייה", body: "מודעה חדשה עלתה ללוח" };
+}
+
 /** Lock-screen alert for the other person in a second-hand thread. Never the sender. */
 export function classifiedMessagePush(input: {
   senderId: string;

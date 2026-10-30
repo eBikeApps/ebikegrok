@@ -9,11 +9,13 @@ import {
   classifyMessageParty,
   presentConversation,
   publicSellerName,
+  classifiedListingAdminAlert,
   classifiedMessagePush,
   validateClassifiedMessage,
   validateListingFields,
   validateListingPhoto,
 } from "../lib/classifieds";
+import { notifyAdmins } from "../lib/admin-push";
 import { sendPushNotification } from "../lib/push-notifications";
 
 type Env = {
@@ -285,6 +287,8 @@ marketplaceRouter.post("/listings", zValidator("json", createSchema), async (c) 
     `;
     markHit(`create-ip:${ip}`, now);
     markHit("create-global", now);
+    const alert = classifiedListingAdminAlert();
+    await notifyAdmins(alert.title, alert.body);
     return c.json({ id }, 201);
   } catch (error) {
     console.error("[marketplace] create failed", error);

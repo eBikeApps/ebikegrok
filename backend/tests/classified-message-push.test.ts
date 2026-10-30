@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifiedMessagePush } from "../src/lib/classifieds";
+import { classifiedListingAdminAlert, classifiedMessagePush } from "../src/lib/classifieds";
 
 const thread = {
   senderName: "דנה כהן",
@@ -9,6 +9,16 @@ const thread = {
   listingTitle: "שיאומי",
   body: "  עדיין למכירה?  ",
 };
+
+describe("second-hand listing alert for admin", () => {
+  test("names the board and nothing about the listing or the person", () => {
+    expect(classifiedListingAdminAlert()).toEqual({
+      title: "יד שנייה",
+      body: "מודעה חדשה עלתה ללוח",
+    });
+    expect(Object.keys(classifiedListingAdminAlert())).toEqual(["title", "body"]);
+  });
+});
 
 describe("second-hand message push", () => {
   test("a buyer message notifies the seller and opens that thread", () => {
