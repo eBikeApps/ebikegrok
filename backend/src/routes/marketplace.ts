@@ -9,10 +9,12 @@ import {
   classifyMessageParty,
   presentConversation,
   publicSellerName,
+  classifiedMessagePush,
   validateClassifiedMessage,
   validateListingFields,
   validateListingPhoto,
 } from "../lib/classifieds";
+import { sendPushNotification } from "../lib/push-notifications";
 
 type Env = {
   Variables: {
@@ -371,13 +373,39 @@ marketplaceRouter.get("/conversations", async (c) => {
 });
 
 async function loadListingParty(id: string) {
-  const rows = await prisma.$queryRaw<Array<{ id: string; sellerId: string; status: string }>>`
-    SELECT id, "sellerId", status
+  const rows = await prisma.$queryRaw<Array<{ id: string; sellerId: string; status: string; title: string }>>`
+    SELECT id, "sellerId", status, title
     FROM "ClassifiedListing"
     WHERE id = ${id}
     LIMIT 1
   `;
   return rows[0] ?? null;
+}
+
+async function notifyMarketplaceMessage(input: {
+  senderId: string;
+  senderName: string | null;
+  sellerId: string;
+  buyerId: string;
+  listingId: string;
+  listingTitle: string;
+  body: string;
+}): Promise<void> {
+  const planned = classifiedMessagePush(input);
+  if (!planned) return;
+  const [recipient, sender] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: planned.recipientId },
+      select: { expoPushToken: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: input.senderId },
+      select: { name: true },
+    }),
+  ]);
+  const push = classifiedMessagePush({ ...input, senderName: sender?.name ?? input.senderName });
+  if (!push?.recipientId || !recipient?.expoPushToken) return;
+  await sendPushNotification(recipient.expoPushToken, push.title, push.body, push.data);
 }
 
 marketplaceRouter.get("/listings/:id/inbox", async (c) => {
@@ -491,6 +519,19 @@ marketplaceRouter.post("/listings/:id/messages", zValidator("json", messageSchem
       VALUES (${id}, ${listing.id}, ${buyerId}, ${user.id}, ${checked.value}, NOW())
     `;
     markHit(`msg:${user.id}`, now);
+    try {
+      await notifyMarketplaceMessage({
+        senderId: user.id,
+        senderName: user.name ?? null,
+        sellerId: listing.sellerId,
+        buyerId,
+        listingId: listing.id,
+        listingTitle: listing.title,
+        body: checked.value,
+      });
+    } catch (error) {
+      console.error("[marketplace] message push failed", error);
+    }
     return c.json({ id }, 201);
   } catch (error) {
     console.error("[marketplace] send message failed", error);

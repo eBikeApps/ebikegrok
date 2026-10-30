@@ -163,6 +163,57 @@ export function validateClassifiedMessage(
   return { ok: true, value };
 }
 
+export type ClassifiedMessagePush = {
+  recipientId: string;
+  title: string;
+  body: string;
+  data: {
+    screen: "marketplace-chat";
+    listingId: string;
+    buyerId: string;
+    role: "buyer" | "seller";
+    listingTitle: string;
+    peerName: string;
+    thread: "1";
+    open: "1";
+  };
+};
+
+/** Lock-screen alert for the other person in a second-hand thread. Never the sender. */
+export function classifiedMessagePush(input: {
+  senderId: string;
+  senderName: string | null;
+  sellerId: string;
+  buyerId: string;
+  listingId: string;
+  listingTitle: string;
+  body: string;
+}): ClassifiedMessagePush | null {
+  if (!input.senderId || !input.buyerId || !input.sellerId || !input.listingId) return null;
+  if (input.senderId !== input.sellerId && input.senderId !== input.buyerId) return null;
+  const recipientId = input.senderId === input.sellerId ? input.buyerId : input.sellerId;
+  if (!recipientId || recipientId === input.senderId) return null;
+  const peer = publicSellerName(input.senderName);
+  const title = peer ?? "הודעה חדשה";
+  const listingTitle = cleanListingText(input.listingTitle).slice(0, 70);
+  const body = cleanListingText(input.body).slice(0, 80) || listingTitle || title;
+  return {
+    recipientId,
+    title,
+    body,
+    data: {
+      screen: "marketplace-chat",
+      listingId: input.listingId,
+      buyerId: input.buyerId,
+      role: recipientId === input.sellerId ? "seller" : "buyer",
+      listingTitle,
+      peerName: peer ?? "",
+      thread: "1",
+      open: "1",
+    },
+  };
+}
+
 export type ClassifiedConversationView = {
   listingId: string;
   listingTitle: string;
