@@ -11,6 +11,8 @@ export const CLASSIFIED_LIMITS = {
 } as const;
 
 export type ClassifiedCategory = "electric_bike" | "electric_scooter";
+export type BatteryCondition = "new" | "good" | "weak" | "replaced";
+const BATTERY_CONDITIONS: readonly BatteryCondition[] = ["new", "good", "weak", "replaced"];
 
 export type ListingErrorCode =
   | "sign_in_required"
@@ -29,6 +31,10 @@ export type ListingErrorCode =
   | "bad_city"
   | "bad_phone"
   | "bad_photo"
+  | "bad_year"
+  | "bad_kilometers"
+  | "bad_battery"
+  | "bad_rides"
   | "links_forbidden";
 
 const URL_RE = /(?:https?:\/\/|www\.)/i;
@@ -47,6 +53,10 @@ export type NormalizedListing = {
   priceIls: number;
   city: string;
   contactPhone: string | null;
+  modelYear: number | null;
+  kilometers: number | null;
+  battery: BatteryCondition | null;
+  rides: boolean | null;
 };
 
 export function cleanListingText(value: string): string {
@@ -72,6 +82,11 @@ export function validateListingFields(input: {
   priceIls: number;
   city: string;
   contactPhone?: string | null;
+  modelYear?: number;
+  kilometers?: number;
+  battery?: string;
+  rides?: boolean;
+  now?: Date;
 }): { ok: true; value: NormalizedListing } | { ok: false; error: ListingErrorCode } {
   if (input.category !== "electric_bike" && input.category !== "electric_scooter") {
     return { ok: false, error: "bad_title" };
@@ -98,6 +113,28 @@ export function validateListingFields(input: {
   if (!CITY_RE.test(city)) return { ok: false, error: "bad_city" };
   const phoneRaw = cleanListingText(input.contactPhone ?? "").replace(/[\s-]/g, "");
   if (phoneRaw && !PHONE_RE.test(phoneRaw)) return { ok: false, error: "bad_phone" };
+  const factsStarted = input.modelYear != null || input.kilometers != null || Boolean(input.battery) || typeof input.rides === "boolean";
+  let modelYear: number | null = null;
+  let kilometers: number | null = null;
+  let battery: BatteryCondition | null = null;
+  let rides: boolean | null = null;
+  if (factsStarted) {
+    const maxYear = (input.now ?? new Date()).getFullYear() + 1;
+    if (!Number.isInteger(input.modelYear) || input.modelYear < 2010 || input.modelYear > maxYear) {
+      return { ok: false, error: "bad_year" };
+    }
+    if (!Number.isInteger(input.kilometers) || input.kilometers < 0 || input.kilometers > 200_000) {
+      return { ok: false, error: "bad_kilometers" };
+    }
+    if (!BATTERY_CONDITIONS.includes(input.battery as BatteryCondition)) {
+      return { ok: false, error: "bad_battery" };
+    }
+    if (typeof input.rides !== "boolean") return { ok: false, error: "bad_rides" };
+    modelYear = input.modelYear;
+    kilometers = input.kilometers;
+    battery = input.battery as BatteryCondition;
+    rides = input.rides;
+  }
   return {
     ok: true,
     value: {
@@ -107,6 +144,10 @@ export function validateListingFields(input: {
       priceIls: input.priceIls,
       city,
       contactPhone: phoneRaw || null,
+      modelYear,
+      kilometers,
+      battery,
+      rides,
     },
   };
 }
@@ -140,7 +181,7 @@ export function assessNewListing(input: {
   return { ok: true };
 }
 
-/** A listing photo is optional. A supplied address must be a picture we stored. */
+/** A supplied address must be a picture we stored. An empty value is allowed here. */
 export function validateListingPhoto(
   value: string | null | undefined
 ): { ok: true; value: string | null } | { ok: false; error: "bad_photo" } {
@@ -151,6 +192,29 @@ export function validateListingPhoto(
   }
   if (SUPABASE_PHOTO_RE.test(raw) || OWN_UPLOAD_RE.test(raw)) return { ok: true, value: raw };
   return { ok: false, error: "bad_photo" };
+}
+
+/** A new listing needs one stored photo. Chat may still send text without one. */
+export function requireListingPhoto(
+  value: string | null | undefined
+): { ok: true; value: string } | { ok: false; error: "bad_photo" } {
+  const photo = validateListingPhoto(value);
+  if (!photo.ok) return photo;
+  if (!photo.value) return { ok: false, error: "bad_photo" };
+  return { ok: true, value: photo.value };
+}
+
+export function validateClassifiedPost(input: {
+  text?: string | null;
+  imageUrl?: string | null;
+}): { ok: true; value: { body: string; imageUrl: string | null } } | { ok: false; error: "bad_message" | "links_forbidden" | "bad_photo" } {
+  const image = validateListingPhoto(input.imageUrl);
+  if (!image.ok) return image;
+  const text = cleanListingText(input.text ?? "");
+  if (!text && image.value) return { ok: true, value: { body: "", imageUrl: image.value } };
+  const checked = validateClassifiedMessage(input.text ?? "");
+  if (!checked.ok) return checked;
+  return { ok: true, value: { body: checked.value, imageUrl: image.value } };
 }
 
 export function validateClassifiedMessage(
@@ -200,7 +264,7 @@ export function classifiedMessagePush(input: {
   const peer = publicSellerName(input.senderName);
   const title = peer ?? "הודעה חדשה";
   const listingTitle = cleanListingText(input.listingTitle).slice(0, 70);
-  const body = cleanListingText(input.body).slice(0, 80) || listingTitle || title;
+  const body = cleanListingText(input.body).slice(0, 80) || "תמונה";
   return {
     recipientId,
     title,
@@ -228,6 +292,7 @@ export type ClassifiedConversationView = {
   body: string;
   createdAt: Date | string;
   mine: boolean;
+  hasImage: boolean;
 };
 
 /** One inbox row. The signed-in person sees the other party's first name. */
@@ -243,6 +308,7 @@ export function presentConversation(input: {
   body: string;
   senderId: string;
   createdAt: Date | string;
+  imageUrl?: string | null;
 }): ClassifiedConversationView | null {
   const role = input.userId === input.sellerId ? "seller" : input.userId === input.buyerId ? "buyer" : null;
   if (!role) return null;
@@ -256,6 +322,7 @@ export function presentConversation(input: {
     body: input.body,
     createdAt: input.createdAt,
     mine: input.senderId === input.userId,
+    hasImage: Boolean(input.imageUrl),
   };
 }
 

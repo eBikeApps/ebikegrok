@@ -5,13 +5,13 @@ import { randomUUID } from "crypto";
 import { prisma } from "../prisma";
 import {
   CLASSIFIED_LIMITS,
+  validateClassifiedPost,
   assessNewListing,
   classifyMessageParty,
   presentConversation,
   publicSellerName,
   classifiedListingAdminAlert,
   classifiedMessagePush,
-  validateClassifiedMessage,
   validateListingFields,
   validateListingPhoto,
 } from "../lib/classifieds";
@@ -76,6 +76,18 @@ function ensureClassifiedTable(): Promise<void> {
         ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "photoUrl" TEXT
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "modelYear" INTEGER
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "kilometers" INTEGER
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "battery" TEXT
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "rides" BOOLEAN
+      `);
+      await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "ClassifiedMessage" (
           "id" TEXT PRIMARY KEY,
           "listingId" TEXT NOT NULL,
@@ -92,6 +104,9 @@ function ensureClassifiedTable(): Promise<void> {
       await prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "ClassifiedMessage_buyerId_createdAt_idx"
         ON "ClassifiedMessage" ("buyerId", "createdAt")
+      `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "ClassifiedMessage" ADD COLUMN IF NOT EXISTS "imageUrl" TEXT
       `);
     })().catch((error) => {
       tableReady = null;
@@ -114,6 +129,10 @@ type ListingRow = {
   sellerName: string | null;
   contactPhone?: string | null;
   photoUrl?: string | null;
+  modelYear?: number | null;
+  kilometers?: number | null;
+  battery?: string | null;
+  rides?: boolean | null;
 };
 
 function present(row: ListingRow, includePhone: boolean) {
@@ -129,6 +148,10 @@ function present(row: ListingRow, includePhone: boolean) {
     createdAt: row.createdAt,
     sellerName: publicSellerName(row.sellerName),
     photoUrl: row.photoUrl ?? null,
+    modelYear: row.modelYear ?? null,
+    kilometers: row.kilometers ?? null,
+    battery: row.battery ?? null,
+    rides: row.rides ?? null,
     ...(includePhone ? { contactPhone: row.contactPhone ?? null } : {}),
   };
 }
@@ -142,6 +165,10 @@ const createSchema = z.object({
   contactPhone: z.string().max(20).optional(),
   photoUrl: z.string().max(400).optional(),
   website: z.string().max(200).optional(),
+  modelYear: z.number().int().optional(),
+  kilometers: z.number().int().optional(),
+  battery: z.string().max(20).optional(),
+  rides: z.boolean().optional(),
 });
 
 const statusSchema = z.object({
@@ -165,7 +192,7 @@ marketplaceRouter.get("/listings", async (c) => {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
       SELECT l.id, l."sellerId", l.category, l.title, l.description, l."priceIls", l.city, l.status, l."createdAt",
-             l."photoUrl", u.name AS "sellerName"
+             l."photoUrl", l."modelYear", l.kilometers, l.battery, l.rides, u.name AS "sellerName"
       FROM "ClassifiedListing" l
       JOIN "User" u ON u.id = l."sellerId"
       -- An active listing stays here until the seller removes it or marks it sold.
@@ -192,7 +219,7 @@ marketplaceRouter.get("/listings/:id", async (c) => {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
       SELECT l.id, l."sellerId", l.category, l.title, l.description, l."priceIls", l.city, l.status, l."createdAt",
-             l."contactPhone", l."photoUrl", u.name AS "sellerName"
+             l."contactPhone", l."photoUrl", l."modelYear", l.kilometers, l.battery, l.rides, u.name AS "sellerName"
       FROM "ClassifiedListing" l
       JOIN "User" u ON u.id = l."sellerId"
       WHERE l.id = ${c.req.param("id")} AND l.status = 'active'
@@ -214,7 +241,7 @@ marketplaceRouter.get("/mine", async (c) => {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
       SELECT id, "sellerId", category, title, description, "priceIls", city, status, "createdAt", "contactPhone", "photoUrl",
-             NULL::text AS "sellerName"
+             "modelYear", kilometers, battery, rides, NULL::text AS "sellerName"
       FROM "ClassifiedListing"
       -- Sold stays visible to the seller. Removed is the seller's delete.
       WHERE "sellerId" = ${user.id} AND status IN ('active', 'sold')
@@ -280,10 +307,13 @@ marketplaceRouter.post("/listings", zValidator("json", createSchema), async (c) 
     const id = randomUUID();
     await prisma.$executeRaw`
       INSERT INTO "ClassifiedListing"
-        (id, "sellerId", category, title, description, "priceIls", city, "contactPhone", "photoUrl", status, "createdAt", "updatedAt")
+        (id, "sellerId", category, title, description, "priceIls", city, "contactPhone", "photoUrl",
+         "modelYear", kilometers, battery, rides, status, "createdAt", "updatedAt")
       VALUES
         (${id}, ${user!.id}, ${checked.value.category}, ${checked.value.title}, ${checked.value.description},
-         ${checked.value.priceIls}, ${checked.value.city}, ${checked.value.contactPhone}, ${photo.value}, 'active', NOW(), NOW())
+         ${checked.value.priceIls}, ${checked.value.city}, ${checked.value.contactPhone}, ${photo.value},
+         ${checked.value.modelYear}, ${checked.value.kilometers}, ${checked.value.battery}, ${checked.value.rides},
+         'active', NOW(), NOW())
     `;
     markHit(`create-ip:${ip}`, now);
     markHit("create-global", now);
@@ -317,8 +347,9 @@ marketplaceRouter.patch("/listings/:id", zValidator("json", statusSchema), async
 });
 
 const messageSchema = z.object({
-  text: z.string().max(600),
+  text: z.string().max(600).optional(),
   buyerId: z.string().max(64).optional(),
+  imageUrl: z.string().max(400).optional(),
 });
 
 const USER_ID_RE = /^[A-Za-z0-9]{8,64}$/;
@@ -341,6 +372,7 @@ marketplaceRouter.get("/conversations", async (c) => {
         buyerId: string;
         buyerName: string | null;
         body: string;
+        imageUrl: string | null;
         senderId: string;
         createdAt: Date;
       }>
@@ -354,6 +386,7 @@ marketplaceRouter.get("/conversations", async (c) => {
         m."buyerId" AS "buyerId",
         buyer.name AS "buyerName",
         m.body,
+        m."imageUrl" AS "imageUrl",
         m."senderId" AS "senderId",
         m."createdAt" AS "createdAt"
       FROM "ClassifiedMessage" m
@@ -463,8 +496,8 @@ marketplaceRouter.get("/listings/:id/messages", async (c) => {
     if (party !== "buyer" && party !== "seller") return c.json({ error: "own_listing" }, 403);
     const buyerId = party === "seller" ? requestedBuyer : user.id;
     if (!buyerId) return c.json({ error: "own_listing" }, 403);
-    const rows = await prisma.$queryRaw<Array<{ id: string; body: string; senderId: string; senderName: string | null; createdAt: Date }>>`
-      SELECT m.id, m.body, m."senderId", u.name AS "senderName", m."createdAt"
+    const rows = await prisma.$queryRaw<Array<{ id: string; body: string; imageUrl: string | null; senderId: string; senderName: string | null; createdAt: Date }>>`
+      SELECT m.id, m.body, m."imageUrl", m."senderId", u.name AS "senderName", m."createdAt"
       FROM "ClassifiedMessage" m
       JOIN "User" u ON u.id = m."senderId"
       WHERE m."listingId" = ${listing.id} AND m."buyerId" = ${buyerId}
@@ -475,6 +508,7 @@ marketplaceRouter.get("/listings/:id/messages", async (c) => {
       messages: rows.map((row) => ({
         id: row.id,
         body: row.body,
+        imageUrl: row.imageUrl ?? null,
         senderName: publicSellerName(row.senderName),
         createdAt: row.createdAt,
         mine: row.senderId === user.id,
@@ -490,7 +524,7 @@ marketplaceRouter.post("/listings/:id/messages", zValidator("json", messageSchem
   const user = c.get("user");
   if (!user?.id || !user.role) return c.json({ error: "sign_in_required" }, 401);
   const body = c.req.valid("json");
-  const checked = validateClassifiedMessage(body.text);
+  const checked = validateClassifiedPost({ text: body.text, imageUrl: body.imageUrl });
   if (!checked.ok) return c.json({ error: checked.error }, 400);
   const now = Date.now();
   if (recentCount(`msg:${user.id}`, 60 * 60 * 1000, now) >= CLASSIFIED_LIMITS.maxMessagesPerUserPerHour) {
@@ -519,8 +553,8 @@ marketplaceRouter.post("/listings/:id/messages", zValidator("json", messageSchem
     }
     const id = randomUUID();
     await prisma.$executeRaw`
-      INSERT INTO "ClassifiedMessage" (id, "listingId", "buyerId", "senderId", body, "createdAt")
-      VALUES (${id}, ${listing.id}, ${buyerId}, ${user.id}, ${checked.value}, NOW())
+      INSERT INTO "ClassifiedMessage" (id, "listingId", "buyerId", "senderId", body, "imageUrl", "createdAt")
+      VALUES (${id}, ${listing.id}, ${buyerId}, ${user.id}, ${checked.value.body}, ${checked.value.imageUrl}, NOW())
     `;
     markHit(`msg:${user.id}`, now);
     try {
@@ -531,7 +565,7 @@ marketplaceRouter.post("/listings/:id/messages", zValidator("json", messageSchem
         buyerId,
         listingId: listing.id,
         listingTitle: listing.title,
-        body: checked.value,
+        body: checked.value.body,
       });
     } catch (error) {
       console.error("[marketplace] message push failed", error);
