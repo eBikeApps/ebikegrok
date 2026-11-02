@@ -6,7 +6,6 @@ export const CLASSIFIED_LIMITS = {
   maxGlobalPerHour: 30,
   maxDetailPerUserPerHour: 20,
   maxMessagesPerUserPerHour: 40,
-  pageSize: 20,
   minPrice: 100,
   maxPrice: 60_000,
 } as const;

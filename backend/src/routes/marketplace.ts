@@ -168,10 +168,10 @@ marketplaceRouter.get("/listings", async (c) => {
              l."photoUrl", u.name AS "sellerName"
       FROM "ClassifiedListing" l
       JOIN "User" u ON u.id = l."sellerId"
+      -- An active listing stays here until the seller removes it or marks it sold.
       WHERE l.status = 'active'
         AND (${category} = '' OR l.category = ${category})
       ORDER BY l."createdAt" DESC
-      LIMIT ${CLASSIFIED_LIMITS.pageSize}
     `;
     return c.json({ listings: rows.map((row) => present(row, false)) });
   } catch (error) {
@@ -216,9 +216,9 @@ marketplaceRouter.get("/mine", async (c) => {
       SELECT id, "sellerId", category, title, description, "priceIls", city, status, "createdAt", "contactPhone", "photoUrl",
              NULL::text AS "sellerName"
       FROM "ClassifiedListing"
+      -- Sold stays visible to the seller. Removed is the seller's delete.
       WHERE "sellerId" = ${user.id} AND status IN ('active', 'sold')
       ORDER BY "createdAt" DESC
-      LIMIT 20
     `;
     return c.json({ listings: rows.map((row) => present(row, true)) });
   } catch (error) {
