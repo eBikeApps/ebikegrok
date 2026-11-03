@@ -13,7 +13,7 @@ import {
   classifiedListingAdminAlert,
   classifiedMessagePush,
   validateListingFields,
-  validateListingPhoto,
+  validateListingPhotos,
 } from "../lib/classifieds";
 import { notifyAdmins } from "../lib/admin-push";
 import { sendPushNotification } from "../lib/push-notifications";
@@ -76,6 +76,9 @@ function ensureClassifiedTable(): Promise<void> {
         ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "photoUrl" TEXT
       `);
       await prisma.$executeRawUnsafe(`
+        ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "photoUrls" TEXT
+      `);
+      await prisma.$executeRawUnsafe(`
         ALTER TABLE "ClassifiedListing" ADD COLUMN IF NOT EXISTS "modelYear" INTEGER
       `);
       await prisma.$executeRawUnsafe(`
@@ -129,13 +132,32 @@ type ListingRow = {
   sellerName: string | null;
   contactPhone?: string | null;
   photoUrl?: string | null;
+  photoUrls?: string | null;
   modelYear?: number | null;
   kilometers?: number | null;
   battery?: string | null;
   rides?: boolean | null;
 };
 
+function storedPhotoUrls(row: ListingRow): string[] {
+  if (row.photoUrls) {
+    try {
+      const parsed = JSON.parse(row.photoUrls) as unknown;
+      if (Array.isArray(parsed)) {
+        const urls = parsed
+          .filter((item): item is string => typeof item === "string" && item.length > 0 && item.length <= 400)
+          .slice(0, 3);
+        if (urls.length > 0) return urls;
+      }
+    } catch {
+      // A bad stored value falls back to the single photo column.
+    }
+  }
+  return row.photoUrl ? [row.photoUrl] : [];
+}
+
 function present(row: ListingRow, includePhone: boolean) {
+  const photoUrls = storedPhotoUrls(row);
   return {
     id: row.id,
     sellerId: row.sellerId,
@@ -147,7 +169,8 @@ function present(row: ListingRow, includePhone: boolean) {
     status: row.status,
     createdAt: row.createdAt,
     sellerName: publicSellerName(row.sellerName),
-    photoUrl: row.photoUrl ?? null,
+    photoUrl: photoUrls[0] ?? null,
+    photoUrls,
     modelYear: row.modelYear ?? null,
     kilometers: row.kilometers ?? null,
     battery: row.battery ?? null,
@@ -164,6 +187,7 @@ const createSchema = z.object({
   city: z.string().max(50),
   contactPhone: z.string().max(20).optional(),
   photoUrl: z.string().max(400).optional(),
+  photoUrls: z.array(z.string().max(400)).max(3).optional(),
   website: z.string().max(200).optional(),
   modelYear: z.number().int().optional(),
   kilometers: z.number().int().optional(),
@@ -192,7 +216,7 @@ marketplaceRouter.get("/listings", async (c) => {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
       SELECT l.id, l."sellerId", l.category, l.title, l.description, l."priceIls", l.city, l.status, l."createdAt",
-             l."photoUrl", l."modelYear", l.kilometers, l.battery, l.rides, u.name AS "sellerName"
+             l."photoUrl", l."photoUrls", l."modelYear", l.kilometers, l.battery, l.rides, u.name AS "sellerName"
       FROM "ClassifiedListing" l
       JOIN "User" u ON u.id = l."sellerId"
       -- An active listing stays here until the seller removes it or marks it sold.
@@ -219,7 +243,7 @@ marketplaceRouter.get("/listings/:id", async (c) => {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
       SELECT l.id, l."sellerId", l.category, l.title, l.description, l."priceIls", l.city, l.status, l."createdAt",
-             l."contactPhone", l."photoUrl", l."modelYear", l.kilometers, l.battery, l.rides, u.name AS "sellerName"
+             l."contactPhone", l."photoUrl", l."photoUrls", l."modelYear", l.kilometers, l.battery, l.rides, u.name AS "sellerName"
       FROM "ClassifiedListing" l
       JOIN "User" u ON u.id = l."sellerId"
       WHERE l.id = ${c.req.param("id")} AND l.status = 'active'
@@ -240,7 +264,7 @@ marketplaceRouter.get("/mine", async (c) => {
   try {
     await ensureClassifiedTable();
     const rows = await prisma.$queryRaw<ListingRow[]>`
-      SELECT id, "sellerId", category, title, description, "priceIls", city, status, "createdAt", "contactPhone", "photoUrl",
+      SELECT id, "sellerId", category, title, description, "priceIls", city, status, "createdAt", "contactPhone", "photoUrl", "photoUrls",
              "modelYear", kilometers, battery, rides, NULL::text AS "sellerName"
       FROM "ClassifiedListing"
       -- Sold stays visible to the seller. Removed is the seller's delete.
@@ -262,7 +286,7 @@ marketplaceRouter.post("/listings", zValidator("json", createSchema), async (c) 
   const user = c.get("user");
   const checked = validateListingFields(body);
   if (!checked.ok) return c.json({ error: checked.error }, 400);
-  const photo = validateListingPhoto(body.photoUrl);
+  const photo = validateListingPhotos({ photoUrl: body.photoUrl, photoUrls: body.photoUrls });
   if (!photo.ok) return c.json({ error: photo.error }, 400);
   if (!user?.id) return c.json({ error: "sign_in_required" }, 401);
   const now = Date.now();
@@ -307,11 +331,12 @@ marketplaceRouter.post("/listings", zValidator("json", createSchema), async (c) 
     const id = randomUUID();
     await prisma.$executeRaw`
       INSERT INTO "ClassifiedListing"
-        (id, "sellerId", category, title, description, "priceIls", city, "contactPhone", "photoUrl",
+        (id, "sellerId", category, title, description, "priceIls", city, "contactPhone", "photoUrl", "photoUrls",
          "modelYear", kilometers, battery, rides, status, "createdAt", "updatedAt")
       VALUES
         (${id}, ${user!.id}, ${checked.value.category}, ${checked.value.title}, ${checked.value.description},
-         ${checked.value.priceIls}, ${checked.value.city}, ${checked.value.contactPhone}, ${photo.value},
+         ${checked.value.priceIls}, ${checked.value.city}, ${checked.value.contactPhone}, ${photo.value.photoUrl},
+         ${photo.value.photoUrls.length > 0 ? JSON.stringify(photo.value.photoUrls) : null},
          ${checked.value.modelYear}, ${checked.value.kilometers}, ${checked.value.battery}, ${checked.value.rides},
          'active', NOW(), NOW())
     `;

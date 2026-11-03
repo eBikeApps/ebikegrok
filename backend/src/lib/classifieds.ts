@@ -207,6 +207,39 @@ export function requireListingPhoto(
   return { ok: true, value: photo.value };
 }
 
+const MAX_LISTING_PHOTOS = 3;
+
+/**
+ * A listing stores up to three pictures. photoUrl stays the first one so older clients still render.
+ * Omitting both fields is allowed for those older clients. A non-empty photoUrls list replaces photoUrl.
+ */
+export function validateListingPhotos(input: {
+  photoUrl?: string | null;
+  photoUrls?: string[] | null;
+}): { ok: true; value: { photoUrl: string | null; photoUrls: string[] } } | { ok: false; error: "bad_photo" } {
+  const listed = Array.isArray(input.photoUrls) ? input.photoUrls : [];
+  if (listed.length > MAX_LISTING_PHOTOS) return { ok: false, error: "bad_photo" };
+  if (listed.length > 0) {
+    const urls: string[] = [];
+    for (const item of listed) {
+      const photo = validateListingPhoto(item);
+      if (!photo.ok || !photo.value) return { ok: false, error: "bad_photo" };
+      if (!urls.includes(photo.value)) urls.push(photo.value);
+    }
+    if (urls.length === 0) return { ok: false, error: "bad_photo" };
+    return { ok: true, value: { photoUrl: urls[0] ?? null, photoUrls: urls } };
+  }
+  const single = validateListingPhoto(input.photoUrl);
+  if (!single.ok) return single;
+  return {
+    ok: true,
+    value: {
+      photoUrl: single.value,
+      photoUrls: single.value ? [single.value] : [],
+    },
+  };
+}
+
 export function validateClassifiedPost(input: {
   text?: string | null;
   imageUrl?: string | null;
