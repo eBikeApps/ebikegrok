@@ -123,15 +123,18 @@ export function validateListingFields(input: {
     if (!Number.isInteger(input.modelYear) || input.modelYear < 2010 || input.modelYear > maxYear) {
       return { ok: false, error: "bad_year" };
     }
-    if (!Number.isInteger(input.kilometers) || input.kilometers < 0 || input.kilometers > 200_000) {
+    if (input.kilometers == null) {
+      kilometers = null;
+    } else if (!Number.isInteger(input.kilometers) || input.kilometers < 0 || input.kilometers > 200_000) {
       return { ok: false, error: "bad_kilometers" };
+    } else {
+      kilometers = input.kilometers;
     }
     if (!BATTERY_CONDITIONS.includes(input.battery as BatteryCondition)) {
       return { ok: false, error: "bad_battery" };
     }
     if (typeof input.rides !== "boolean") return { ok: false, error: "bad_rides" };
     modelYear = input.modelYear;
-    kilometers = input.kilometers;
     battery = input.battery as BatteryCondition;
     rides = input.rides;
   }
