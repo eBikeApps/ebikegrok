@@ -8,6 +8,8 @@ import {
   removeAdminPushToken,
 } from "../lib/admin-push";
 import { fetchUserSavedAddresses } from "../lib/saved-addresses-db";
+import { ensureClassifiedTable } from "./marketplace";
+import { sendPushNotification } from "../lib/push-notifications";
 
 const ACTIVE_JOB_STATUSES = ["accepted", "on_way", "arrived", "in_progress"] as const;
 
@@ -537,6 +539,121 @@ adminPanelRouter.delete("/customers/:id", async (c) => {
   if (!user || user.role !== "customer") return c.json({ message: "הלקוח לא נמצא" }, 404);
   await prisma.user.delete({ where: { id } });
   return c.json({ message: "הלקוח נמחק" });
+});
+
+function listingPhotos(photoUrl: string | null, photoUrls: string | null): string[] {
+  if (photoUrls) {
+    try {
+      const parsed = JSON.parse(photoUrls) as unknown;
+      if (Array.isArray(parsed)) {
+        const urls = parsed
+          .filter((item): item is string => typeof item === "string" && item.length > 0 && item.length <= 400)
+          .slice(0, 3);
+        if (urls.length > 0) return urls;
+      }
+    } catch {
+      // A bad stored value falls back to the single photo column.
+    }
+  }
+  return photoUrl ? [photoUrl] : [];
+}
+
+async function tellListingSeller(sellerId: string, body: string) {
+  try {
+    const seller = await prisma.user.findUnique({
+      where: { id: sellerId },
+      select: { expoPushToken: true },
+    });
+    if (!seller?.expoPushToken) return;
+    await sendPushNotification(seller.expoPushToken, "יד שנייה", body);
+  } catch (error) {
+    console.error("[classifieds] seller notify failed", error);
+  }
+}
+
+adminPanelRouter.get("/classifieds/pending", async (c) => {
+  await ensureClassifiedTable();
+  const rows = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      category: string;
+      title: string;
+      description: string;
+      priceIls: number;
+      city: string;
+      createdAt: Date;
+      photoUrl: string | null;
+      photoUrls: string | null;
+      modelYear: number | null;
+      kilometers: number | null;
+      battery: string | null;
+      rides: boolean | null;
+      contactPhone: string | null;
+      sellerName: string | null;
+      sellerPhone: string | null;
+      sellerEmail: string | null;
+    }>
+  >`
+    SELECT l.id, l.category, l.title, l.description, l."priceIls", l.city, l."createdAt",
+           l."photoUrl", l."photoUrls", l."modelYear", l.kilometers, l.battery, l.rides, l."contactPhone",
+           u.name AS "sellerName", u.phone AS "sellerPhone", u.email AS "sellerEmail"
+    FROM "ClassifiedListing" l
+    JOIN "User" u ON u.id = l."sellerId"
+    WHERE l.status = 'pending'
+    ORDER BY l."createdAt" ASC
+  `;
+  return c.json({
+    listings: rows.map((row) => {
+      const photoUrls = listingPhotos(row.photoUrl, row.photoUrls);
+      return {
+        id: row.id,
+        category: row.category,
+        title: row.title,
+        description: row.description,
+        priceIls: row.priceIls,
+        city: row.city,
+        createdAt: row.createdAt,
+        photoUrl: photoUrls[0] ?? null,
+        photoUrls,
+        modelYear: row.modelYear,
+        kilometers: row.kilometers,
+        battery: row.battery,
+        rides: row.rides,
+        contactPhone: row.contactPhone,
+        sellerName: row.sellerName,
+        sellerPhone: row.sellerPhone,
+        sellerEmail: row.sellerEmail,
+      };
+    }),
+  });
+});
+
+adminPanelRouter.post("/classifieds/:id/approve", async (c) => {
+  await ensureClassifiedTable();
+  const updated = await prisma.$queryRaw<Array<{ id: string; sellerId: string }>>`
+    UPDATE "ClassifiedListing"
+    SET status = 'active', "updatedAt" = NOW()
+    WHERE id = ${c.req.param("id")} AND status = 'pending'
+    RETURNING id, "sellerId"
+  `;
+  const row = updated[0];
+  if (!row) return c.json({ message: "המודעה כבר לא ממתינה" }, 404);
+  await tellListingSeller(row.sellerId, "המודעה אושרה ועולה ללוח");
+  return c.json({ id: row.id, status: "active" });
+});
+
+adminPanelRouter.post("/classifieds/:id/reject", async (c) => {
+  await ensureClassifiedTable();
+  const updated = await prisma.$queryRaw<Array<{ id: string; sellerId: string }>>`
+    UPDATE "ClassifiedListing"
+    SET status = 'rejected', "updatedAt" = NOW()
+    WHERE id = ${c.req.param("id")} AND status = 'pending'
+    RETURNING id, "sellerId"
+  `;
+  const row = updated[0];
+  if (!row) return c.json({ message: "המודעה כבר לא ממתינה" }, 404);
+  await tellListingSeller(row.sellerId, "המודעה לא אושרה");
+  return c.json({ id: row.id, status: "rejected" });
 });
 
 adminPanelRouter.put("/push-token", async (c) => {

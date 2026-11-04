@@ -280,7 +280,7 @@ export type ClassifiedMessagePush = {
 
 /** Admin lock-screen line for a new second-hand listing. No seller, model, price, city, or phone. */
 export function classifiedListingAdminAlert(): { title: string; body: string } {
-  return { title: "יד שנייה", body: "מודעה חדשה עלתה ללוח" };
+  return { title: "יד שנייה", body: "מודעה חדשה ממתינה לאישור" };
 }
 
 /** Lock-screen alert for the other person in a second-hand thread. Never the sender. */

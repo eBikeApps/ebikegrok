@@ -14,7 +14,7 @@ describe("second-hand listing alert for admin", () => {
   test("names the board and nothing about the listing or the person", () => {
     expect(classifiedListingAdminAlert()).toEqual({
       title: "יד שנייה",
-      body: "מודעה חדשה עלתה ללוח",
+      body: "מודעה חדשה ממתינה לאישור",
     });
     expect(Object.keys(classifiedListingAdminAlert())).toEqual(["title", "body"]);
   });

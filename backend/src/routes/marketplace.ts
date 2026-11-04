@@ -46,7 +46,7 @@ function clientIp(header: string | undefined): string {
 
 let tableReady: Promise<void> | null = null;
 
-function ensureClassifiedTable(): Promise<void> {
+export function ensureClassifiedTable(): Promise<void> {
   if (!tableReady) {
     tableReady = (async () => {
       await prisma.$executeRawUnsafe(`
@@ -219,7 +219,7 @@ marketplaceRouter.get("/listings", async (c) => {
              l."photoUrl", l."photoUrls", l."modelYear", l.kilometers, l.battery, l.rides, u.name AS "sellerName"
       FROM "ClassifiedListing" l
       JOIN "User" u ON u.id = l."sellerId"
-      -- An active listing stays here until the seller removes it or marks it sold.
+      -- Only an approved listing is public. It stays until the seller removes it or marks it sold.
       WHERE l.status = 'active'
         AND (${category} = '' OR l.category = ${category})
       ORDER BY l."createdAt" DESC
@@ -267,8 +267,8 @@ marketplaceRouter.get("/mine", async (c) => {
       SELECT id, "sellerId", category, title, description, "priceIls", city, status, "createdAt", "contactPhone", "photoUrl", "photoUrls",
              "modelYear", kilometers, battery, rides, NULL::text AS "sellerName"
       FROM "ClassifiedListing"
-      -- Sold stays visible to the seller. Removed is the seller's delete.
-      WHERE "sellerId" = ${user.id} AND status IN ('active', 'sold')
+      -- Pending and rejected stay with the seller. Removed is the seller's delete.
+      WHERE "sellerId" = ${user.id} AND status IN ('active', 'sold', 'pending', 'rejected')
       ORDER BY "createdAt" DESC
     `;
     return c.json({ listings: rows.map((row) => present(row, true)) });
@@ -297,7 +297,7 @@ marketplaceRouter.post("/listings", zValidator("json", createSchema), async (c) 
     const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
     const [counts] = await prisma.$queryRaw<Array<{ active: number; day: number; last: Date | null }>>`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'active')::int AS active,
+        COUNT(*) FILTER (WHERE status IN ('active', 'pending'))::int AS active,
         COUNT(*) FILTER (WHERE "createdAt" > ${since})::int AS day,
         MAX("createdAt") AS last
       FROM "ClassifiedListing"
@@ -338,12 +338,12 @@ marketplaceRouter.post("/listings", zValidator("json", createSchema), async (c) 
          ${checked.value.priceIls}, ${checked.value.city}, ${checked.value.contactPhone}, ${photo.value.photoUrl},
          ${photo.value.photoUrls.length > 0 ? JSON.stringify(photo.value.photoUrls) : null},
          ${checked.value.modelYear}, ${checked.value.kilometers}, ${checked.value.battery}, ${checked.value.rides},
-         'active', NOW(), NOW())
+         'pending', NOW(), NOW())
     `;
     markHit(`create-ip:${ip}`, now);
     markHit("create-global", now);
     const alert = classifiedListingAdminAlert();
-    await notifyAdmins(alert.title, alert.body);
+    await notifyAdmins(alert.title, alert.body, { screen: "home" });
     return c.json({ id }, 201);
   } catch (error) {
     console.error("[marketplace] create failed", error);
@@ -360,7 +360,11 @@ marketplaceRouter.patch("/listings/:id", zValidator("json", statusSchema), async
     const updated = await prisma.$queryRaw<Array<{ id: string }>>`
       UPDATE "ClassifiedListing"
       SET status = ${status}, "updatedAt" = NOW()
-      WHERE id = ${c.req.param("id")} AND "sellerId" = ${user.id} AND status = 'active'
+      WHERE id = ${c.req.param("id")} AND "sellerId" = ${user.id}
+        AND (
+          (status = 'active' AND ${status} IN ('sold', 'removed'))
+          OR (status IN ('pending', 'rejected') AND ${status} = 'removed')
+        )
       RETURNING id
     `;
     if (!updated[0]) return c.json({ error: "not_found" }, 404);
