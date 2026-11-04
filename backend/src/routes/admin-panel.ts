@@ -8,6 +8,7 @@ import {
   removeAdminPushToken,
 } from "../lib/admin-push";
 import { fetchUserSavedAddresses } from "../lib/saved-addresses-db";
+import { validateListingFields, type ListingErrorCode } from "../lib/classifieds";
 import { ensureClassifiedTable } from "./marketplace";
 import { sendPushNotification } from "../lib/push-notifications";
 
@@ -558,6 +559,107 @@ function listingPhotos(photoUrl: string | null, photoUrls: string | null): strin
   return photoUrl ? [photoUrl] : [];
 }
 
+type StoredListing = {
+  id: string;
+  status: string;
+  category: string;
+  title: string;
+  description: string;
+  priceIls: number;
+  city: string;
+  createdAt: Date;
+  photoUrl: string | null;
+  photoUrls: string | null;
+  modelYear: number | null;
+  kilometers: number | null;
+  battery: string | null;
+  rides: boolean | null;
+  contactPhone: string | null;
+  sellerName: string | null;
+  sellerPhone: string | null;
+  sellerEmail: string | null;
+};
+
+function presentListing(row: StoredListing) {
+  const photoUrls = listingPhotos(row.photoUrl, row.photoUrls);
+  return {
+    id: row.id,
+    status: row.status,
+    category: row.category,
+    title: row.title,
+    description: row.description,
+    priceIls: Number(row.priceIls),
+    city: row.city,
+    createdAt: row.createdAt,
+    photoUrl: photoUrls[0] ?? null,
+    photoUrls,
+    modelYear: row.modelYear,
+    kilometers: row.kilometers,
+    battery: row.battery,
+    rides: row.rides,
+    contactPhone: row.contactPhone,
+    sellerName: row.sellerName,
+    sellerPhone: row.sellerPhone,
+    sellerEmail: row.sellerEmail,
+  };
+}
+
+const LISTING_SELECT = `
+  SELECT l.id, l.status, l.category, l.title, l.description, l."priceIls", l.city, l."createdAt",
+         l."photoUrl", l."photoUrls", l."modelYear", l.kilometers, l.battery, l.rides, l."contactPhone",
+         u.name AS "sellerName", u.phone AS "sellerPhone", u.email AS "sellerEmail"
+  FROM "ClassifiedListing" l
+  JOIN "User" u ON u.id = l."sellerId"
+`;
+
+function listingEditMessage(code: ListingErrorCode): string {
+  switch (code) {
+    case "bad_title":
+      return "הכותרת צריכה 4 עד 70 תווים, בלי קישור";
+    case "bad_description":
+      return "התיאור צריך 9 עד 600 תווים, שונה מהכותרת ובלי קישור";
+    case "bad_price":
+      return "המחיר צריך להיות בין 100 ל-60,000";
+    case "bad_city":
+      return "עיר לא תקינה";
+    case "bad_phone":
+      return "טלפון צריך להתחיל ב-05 ולהיות 10 ספרות, או להישאר ריק";
+    case "bad_year":
+      return "שנתון לא תקין";
+    case "bad_kilometers":
+      return "קילומטרים לא תקינים";
+    case "bad_battery":
+      return "צריך לבחור מצב סוללה";
+    case "bad_rides":
+      return "צריך לסמן אם הכלי נוסע";
+    default:
+      return "לא הצלחנו לשמור את המודעה";
+  }
+}
+
+function readListingEdit(body: unknown) {
+  if (!body || typeof body !== "object") return { ok: false as const, message: "אין מה לשמור" };
+  const raw = body as Record<string, unknown>;
+  const priceText = String(raw.priceIls ?? "").replace(/[^\d]/g, "");
+  const priceIls = priceText ? Number(priceText) : Number.NaN;
+  const yearText = String(raw.modelYear ?? "").trim();
+  const distanceText = String(raw.kilometers ?? "").trim();
+  const parsed = validateListingFields({
+    category: String(raw.category ?? ""),
+    title: String(raw.title ?? ""),
+    description: String(raw.description ?? ""),
+    priceIls,
+    city: String(raw.city ?? ""),
+    contactPhone: raw.contactPhone == null ? "" : String(raw.contactPhone),
+    modelYear: yearText === "" ? undefined : Number(yearText),
+    kilometers: distanceText === "" ? undefined : Number(distanceText),
+    battery: typeof raw.battery === "string" && raw.battery ? raw.battery : undefined,
+    rides: raw.rides === true || raw.rides === false ? raw.rides : undefined,
+  });
+  if (!parsed.ok) return { ok: false as const, message: listingEditMessage(parsed.error) };
+  return { ok: true as const, value: parsed.value };
+}
+
 async function tellListingSeller(sellerId: string, body: string) {
   try {
     const seller = await prisma.user.findUnique({
@@ -573,59 +675,75 @@ async function tellListingSeller(sellerId: string, body: string) {
 
 adminPanelRouter.get("/classifieds/pending", async (c) => {
   await ensureClassifiedTable();
-  const rows = await prisma.$queryRaw<
-    Array<{
-      id: string;
-      category: string;
-      title: string;
-      description: string;
-      priceIls: number;
-      city: string;
-      createdAt: Date;
-      photoUrl: string | null;
-      photoUrls: string | null;
-      modelYear: number | null;
-      kilometers: number | null;
-      battery: string | null;
-      rides: boolean | null;
-      contactPhone: string | null;
-      sellerName: string | null;
-      sellerPhone: string | null;
-      sellerEmail: string | null;
-    }>
-  >`
-    SELECT l.id, l.category, l.title, l.description, l."priceIls", l.city, l."createdAt",
+  const rows = await prisma.$queryRawUnsafe<StoredListing[]>(
+    `${LISTING_SELECT} WHERE l.status = 'pending' ORDER BY l."createdAt" ASC`,
+  );
+  return c.json({ listings: rows.map(presentListing) });
+});
+
+adminPanelRouter.get("/classifieds", async (c) => {
+  await ensureClassifiedTable();
+  const rows = await prisma.$queryRawUnsafe<StoredListing[]>(
+    `${LISTING_SELECT}
+     WHERE l.status IN ('active', 'pending', 'sold', 'rejected')
+     ORDER BY CASE l.status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 WHEN 'sold' THEN 2 ELSE 3 END,
+              l."createdAt" DESC`,
+  );
+  return c.json({ listings: rows.map(presentListing) });
+});
+
+adminPanelRouter.get("/classifieds/:id", async (c) => {
+  await ensureClassifiedTable();
+  const rows = await prisma.$queryRaw<StoredListing[]>`
+    SELECT l.id, l.status, l.category, l.title, l.description, l."priceIls", l.city, l."createdAt",
            l."photoUrl", l."photoUrls", l."modelYear", l.kilometers, l.battery, l.rides, l."contactPhone",
            u.name AS "sellerName", u.phone AS "sellerPhone", u.email AS "sellerEmail"
     FROM "ClassifiedListing" l
     JOIN "User" u ON u.id = l."sellerId"
-    WHERE l.status = 'pending'
-    ORDER BY l."createdAt" ASC
+    WHERE l.id = ${c.req.param("id")} AND l.status <> 'removed'
   `;
-  return c.json({
-    listings: rows.map((row) => {
-      const photoUrls = listingPhotos(row.photoUrl, row.photoUrls);
-      return {
-        id: row.id,
-        category: row.category,
-        title: row.title,
-        description: row.description,
-        priceIls: row.priceIls,
-        city: row.city,
-        createdAt: row.createdAt,
-        photoUrl: photoUrls[0] ?? null,
-        photoUrls,
-        modelYear: row.modelYear,
-        kilometers: row.kilometers,
-        battery: row.battery,
-        rides: row.rides,
-        contactPhone: row.contactPhone,
-        sellerName: row.sellerName,
-        sellerPhone: row.sellerPhone,
-        sellerEmail: row.sellerEmail,
-      };
-    }),
-  });
+  const row = rows[0];
+  if (!row) return c.json({ message: "המודעה לא נמצאה" }, 404);
+  return c.json({ listing: presentListing(row) });
+});
+
+adminPanelRouter.patch("/classifieds/:id", async (c) => {
+  await ensureClassifiedTable();
+  const edit = readListingEdit(await c.req.json().catch(() => null));
+  if (!edit.ok) return c.json({ message: edit.message }, 400);
+  const value = edit.value;
+  const updated = await prisma.$queryRaw<Array<{ id: string }>>`
+    UPDATE "ClassifiedListing"
+    SET category = ${value.category},
+        title = ${value.title},
+        description = ${value.description},
+        "priceIls" = ${value.priceIls},
+        city = ${value.city},
+        "contactPhone" = ${value.contactPhone},
+        "modelYear" = ${value.modelYear},
+        kilometers = ${value.kilometers},
+        battery = ${value.battery},
+        rides = ${value.rides},
+        "updatedAt" = NOW()
+    WHERE id = ${c.req.param("id")} AND status IN ('active', 'pending', 'sold', 'rejected')
+    RETURNING id
+  `;
+  if (!updated[0]) return c.json({ message: "המודעה לא נמצאה" }, 404);
+  return c.json({ id: updated[0].id });
+});
+
+adminPanelRouter.delete("/classifieds/:id", async (c) => {
+  await ensureClassifiedTable();
+  const updated = await prisma.$queryRaw<Array<{ id: string; sellerId: string }>>`
+    UPDATE "ClassifiedListing"
+    SET status = 'removed', "updatedAt" = NOW()
+    WHERE id = ${c.req.param("id")} AND status IN ('active', 'pending', 'sold', 'rejected')
+    RETURNING id, "sellerId"
+  `;
+  const row = updated[0];
+  if (!row) return c.json({ message: "המודעה לא נמצאה" }, 404);
+  await tellListingSeller(row.sellerId, "המודעה הוסרה מהלוח");
+  return c.json({ id: row.id, status: "removed" });
 });
 
 adminPanelRouter.post("/classifieds/:id/approve", async (c) => {
