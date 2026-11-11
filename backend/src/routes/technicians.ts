@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { prisma } from "../prisma";
+import { discoveryRadiusKm } from "../lib/service-radius";
 
 const updateProfileSchema = z.object({
   phone: z.string().max(20).optional(),
@@ -89,8 +90,8 @@ techniciansRouter.get("/available", zValidator("query", availableQuerySchema), a
             tech.currentLocationLng!
           );
 
-          // Filter by service radius — platform minimum 40km so customers can discover techs
-          if (distance > Math.max(tech.serviceRadius || 40, 40)) {
+          const radiusKm = discoveryRadiusKm(tech.serviceRadius);
+          if (distance > radiusKm) {
             return null;
           }
 
@@ -98,6 +99,7 @@ techniciansRouter.get("/available", zValidator("query", availableQuerySchema), a
 
           return {
             ...tech,
+            serviceRadius: radiusKm,
             distance,
             eta,
           };
@@ -159,7 +161,9 @@ techniciansRouter.get("/:id", async (c) => {
       return c.json({ message: "Technician not found" }, 404);
     }
 
-    return c.json({ technician });
+    return c.json({
+      technician: { ...technician, serviceRadius: discoveryRadiusKm(technician.serviceRadius) },
+    });
   } catch (error) {
     console.error("Error fetching technician:", error);
     return c.json({ message: "Internal server error" }, 500);
@@ -218,7 +222,12 @@ techniciansRouter.patch("/profile", zValidator("json", updateProfileSchema), asy
       },
     });
 
-    return c.json({ technician: updatedTechnician });
+    return c.json({
+      technician: {
+        ...updatedTechnician,
+        serviceRadius: discoveryRadiusKm(updatedTechnician.serviceRadius),
+      },
+    });
   } catch (error) {
     console.error("Error updating technician profile:", error);
     return c.json({ message: "Internal server error" }, 500);
